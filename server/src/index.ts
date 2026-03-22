@@ -5,6 +5,8 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { mkdirSync } from 'fs'
 import { initDb } from './db/database.js'
+import { sessionRoutes } from './routes/sessions.js'
+import { terminalRoutes } from './routes/terminal.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -27,6 +29,9 @@ await app.register(staticPlugin, {
 })
 
 app.get('/api/health', async () => ({ ok: true }))
+
+await app.register(sessionRoutes)
+await app.register(terminalRoutes)
 
 // SPA fallback
 app.setNotFoundHandler(async (req, reply) => {
