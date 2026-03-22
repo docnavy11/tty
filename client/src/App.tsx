@@ -1,14 +1,8 @@
 import { useState } from 'react'
 import { TerminalView } from './components/Terminal'
 
-type AuthType = 'key' | 'password'
-
 interface ConnectForm {
-  host: string
-  username: string
-  authType: AuthType
-  keyPath: string
-  password: string
+  target: string  // user@host or "local"
 }
 
 const inputStyle: React.CSSProperties = {
@@ -23,50 +17,33 @@ const inputStyle: React.CSSProperties = {
   outline: 'none',
 }
 
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  marginBottom: 4,
-  color: '#888',
-  fontSize: 11,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-}
-
 export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
-  const [form, setForm] = useState<ConnectForm>({
-    host: '',
-    username: '',
-    authType: 'key',
-    keyPath: '~/.ssh/id_ed25519',
-    password: '',
-  })
-
-  const set = (k: keyof ConnectForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm(f => ({ ...f, [k]: e.target.value }))
+  const [form, setForm] = useState<ConnectForm>({ target: '' })
 
   const connect = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setConnecting(true)
     try {
+      const target = form.target.trim()
+      let body: Record<string, unknown>
+
+      if (target === 'local') {
+        body = { authType: 'local', host: 'localhost', username: '' }
+      } else {
+        const [username, host] = target.includes('@') ? target.split('@') : ['root', target]
+        body = { host, username, authType: 'key' }
+      }
+
       const res = await fetch('/api/sessions/adhoc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host: form.host,
-          username: form.username,
-          authType: form.authType,
-          keyPath: form.authType === 'key' ? form.keyPath : undefined,
-          password: form.authType === 'password' ? form.password : undefined,
-        }),
+        body: JSON.stringify(body),
       })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text)
-      }
+      if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setSessionId(data.sessionId)
     } catch (err) {
@@ -97,7 +74,7 @@ export default function App() {
       background: '#1a1a1a',
     }}>
       <form onSubmit={connect} style={{
-        width: 340,
+        width: 320,
         background: '#111',
         border: '1px solid #2a2a2a',
         borderRadius: 8,
@@ -106,40 +83,18 @@ export default function App() {
         flexDirection: 'column',
         gap: 16,
       }}>
-        <div style={{ marginBottom: 4 }}>
-          <h1 style={{ fontSize: 16, fontWeight: 600, color: '#e0e0e0', margin: 0 }}>WebTerminal</h1>
-          <p style={{ fontSize: 12, color: '#555', marginTop: 4 }}>Connect to a remote server</p>
-        </div>
+        <h1 style={{ fontSize: 16, fontWeight: 600, color: '#e0e0e0', margin: 0 }}>WebTerminal</h1>
 
-        <div>
-          <label style={labelStyle}>Host</label>
-          <input style={inputStyle} value={form.host} onChange={set('host')} placeholder="server.example.com" required autoFocus />
-        </div>
-
-        <div>
-          <label style={labelStyle}>Username</label>
-          <input style={inputStyle} value={form.username} onChange={set('username')} placeholder="root" required />
-        </div>
-
-        <div>
-          <label style={labelStyle}>Auth</label>
-          <select style={{ ...inputStyle, cursor: 'pointer' }} value={form.authType} onChange={set('authType')}>
-            <option value="key">SSH Key</option>
-            <option value="password">Password</option>
-          </select>
-        </div>
-
-        {form.authType === 'key' ? (
-          <div>
-            <label style={labelStyle}>Key path</label>
-            <input style={inputStyle} value={form.keyPath} onChange={set('keyPath')} placeholder="~/.ssh/id_ed25519" />
-          </div>
-        ) : (
-          <div>
-            <label style={labelStyle}>Password</label>
-            <input style={inputStyle} type="password" value={form.password} onChange={set('password')} />
-          </div>
-        )}
+        <input
+          style={inputStyle}
+          value={form.target}
+          onChange={e => setForm({ target: e.target.value })}
+          placeholder="user@host  or  local"
+          required
+          autoFocus
+          autoComplete="off"
+          spellCheck={false}
+        />
 
         {error && (
           <div style={{ color: '#ff5555', fontSize: 12, padding: '8px 10px', background: '#1a0000', border: '1px solid #550000', borderRadius: 4 }}>
