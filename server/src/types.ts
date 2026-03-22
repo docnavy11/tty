@@ -2,7 +2,7 @@ export interface SessionConfig {
   host: string
   port: number
   username: string
-  authType: 'key' | 'password'
+  authType: 'key' | 'password' | 'local'
   keyPath?: string
   password?: string
   displayName?: string

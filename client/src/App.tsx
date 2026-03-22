@@ -21,7 +21,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
-  const [form, setForm] = useState<ConnectForm>({ target: '' })
+  const [form, setForm] = useState<ConnectForm>({ target: 'local' })
 
   const connect = async (e: React.FormEvent) => {
     e.preventDefault()

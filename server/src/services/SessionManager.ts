@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import type { WebSocket } from 'ws'
 import type { SessionConfig, StoredSession } from '../types.js'
+import { createLocal, killLocal } from './LocalBridge.js'
 
 interface LiveSession extends StoredSession {
   conn: Client
@@ -41,7 +42,14 @@ class SessionManager {
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session ${id} not found`)
 
-    // Steal existing connection if alive
+    // Local session — no SSH, spawn tmux directly
+    if (session.config.authType === 'local') {
+      this.sessions.set(id, { ...session, status: 'connected' })
+      createLocal(id, session.tmuxName, cols, rows, ws)
+      return
+    }
+
+    // Steal existing SSH connection if alive
     const existing = this.live.get(id)
     if (existing) {
       if (existing.ws && existing.ws.readyState === 1) {
@@ -159,6 +167,13 @@ class SessionManager {
   }
 
   kill(id: string): void {
+    const session = this.sessions.get(id)
+    if (session?.config.authType === 'local') {
+      killLocal(id)
+      this.sessions.delete(id)
+      return
+    }
+
     const live = this.live.get(id)
     if (live) {
       live.conn.exec(`tmux kill-session -t ${live.tmuxName}`, (err, ch) => {
