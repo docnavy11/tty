@@ -29,8 +29,8 @@ const inputSm: React.CSSProperties = {
 export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [quickConnect, setQuickConnect] = useState('')
   const [showInput, setShowInput] = useState(false)
+  const [newName, setNewName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   // Launch project sessions on mount
@@ -53,18 +53,11 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
   // Add a session: saves as project session definition AND launches it
   const addSession = async (e: React.FormEvent) => {
     e.preventDefault()
-    const target = quickConnect.trim()
-    if (!target) return
+    const name = newName.trim() || 'shell'
     setError(null)
     let defId: string | null = null
     try {
-      let defBody: Record<string, unknown>
-      if (target === 'local') {
-        defBody = { name: 'local', host: 'localhost', username: '', authType: 'local', port: 22 }
-      } else {
-        const [username, host] = target.includes('@') ? target.split('@') : ['root', target]
-        defBody = { name: target, host, username, authType: 'key', port: 22 }
-      }
+      const defBody = { name, host: 'localhost', username: '', authType: 'local', port: 22 }
 
       // Save as session definition
       const defRes = await fetch(`/api/projects/${projectId}/sessions`, {
@@ -86,7 +79,7 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
       const mine = all.filter(s => sessionIds.includes(s.id))
       setSessions(mine)
       setActiveId(sessionIds[sessionIds.length - 1] ?? mine[0]?.id ?? null)
-      setQuickConnect('')
+      setNewName('')
       setShowInput(false)
     } catch (err) {
       // Roll back the session definition if launch failed
@@ -156,11 +149,11 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
           <form onSubmit={addSession} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px' }}>
             <input
               autoFocus
-              value={quickConnect}
-              onChange={e => setQuickConnect(e.target.value)}
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Escape' && setShowInput(false)}
-              placeholder="user@host or local"
-              style={{ ...inputSm, width: 160 }}
+              placeholder="Session name"
+              style={{ ...inputSm, width: 130 }}
             />
             <button type="submit" style={{ ...inputSm, cursor: 'pointer', color: '#50fa7b' }}>Add</button>
           </form>

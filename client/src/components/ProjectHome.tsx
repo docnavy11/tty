@@ -37,7 +37,7 @@ const statusDot: Record<string, string> = {
 export function ProjectHome({ projects, ungroupedSessions, onOpenProject, onOpenSession, onKillSession, onRefresh }: Props) {
   const [newProjectName, setNewProjectName] = useState('')
   const [showNewProject, setShowNewProject] = useState(false)
-  const [quickTarget, setQuickTarget] = useState('local')
+  const [quickName, setQuickName] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -64,13 +64,9 @@ export function ProjectHome({ projects, ungroupedSessions, onOpenProject, onOpen
     setError(null)
     setConnecting(true)
     try {
-      const target = quickTarget.trim()
-      let body: Record<string, unknown>
-      if (target === 'local') {
-        body = { authType: 'local', host: 'localhost', username: '' }
-      } else {
-        const [username, host] = target.includes('@') ? target.split('@') : ['root', target]
-        body = { host, username, authType: 'key' }
+      const body = {
+        authType: 'local', host: 'localhost', username: '',
+        displayName: quickName.trim() || 'shell',
       }
       const res = await fetch('/api/sessions/adhoc', {
         method: 'POST',
@@ -188,9 +184,9 @@ export function ProjectHome({ projects, ungroupedSessions, onOpenProject, onOpen
         <form onSubmit={quickConnect} style={{ display: 'flex', gap: 8 }}>
           <input
             style={{ ...inputStyle, flex: 1 }}
-            value={quickTarget}
-            onChange={e => setQuickTarget(e.target.value)}
-            placeholder="user@host  or  local"
+            value={quickName}
+            onChange={e => setQuickName(e.target.value)}
+            placeholder="Session name (optional)"
             autoComplete="off"
             spellCheck={false}
           />
@@ -199,7 +195,7 @@ export function ProjectHome({ projects, ungroupedSessions, onOpenProject, onOpen
             disabled={connecting}
             style={{ ...inputStyle, cursor: connecting ? 'not-allowed' : 'pointer', color: connecting ? '#555' : '#50fa7b', whiteSpace: 'nowrap' }}
           >
-            {connecting ? '…' : 'Connect'}
+            {connecting ? '…' : '+ Shell'}
           </button>
         </form>
 
