@@ -7,11 +7,12 @@ import '@xterm/xterm/css/xterm.css'
 interface Props {
   sessionId: string
   visible?: boolean
+  showHeader?: boolean
   onClose: () => void
   onError: (msg: string) => void
 }
 
-export function TerminalView({ sessionId, visible = true, onClose, onError }: Props) {
+export function TerminalView({ sessionId, visible = true, showHeader = true, onClose, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
 
@@ -112,30 +113,15 @@ export function TerminalView({ sessionId, visible = true, onClose, onError }: Pr
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', visibility: visible ? 'visible' : 'hidden', position: visible ? 'relative' : 'absolute', width: '100%' }}>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '6px 12px',
-        background: '#111',
-        borderBottom: '1px solid #333',
-        flexShrink: 0,
-      }}>
-        <span style={{ color: '#888', fontSize: 12 }}>{sessionId.slice(0, 8)}</span>
-        <button
-          onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#888',
-            cursor: 'pointer',
-            fontSize: 14,
-            padding: '2px 8px',
-          }}
-        >
-          ✕
-        </button>
-      </div>
+      {showHeader && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '6px 12px', background: '#111', borderBottom: '1px solid #333', flexShrink: 0,
+        }}>
+          <span style={{ color: '#888', fontSize: 12 }}>{sessionId.slice(0, 8)}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 14, padding: '2px 8px' }}>✕</button>
+        </div>
+      )}
       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden' }} />
     </div>
   )

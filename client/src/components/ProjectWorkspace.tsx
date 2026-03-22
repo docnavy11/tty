@@ -101,25 +101,15 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1a1a1a' }}>
-      {/* Top bar */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '0 12px', height: 38,
-        background: '#111', borderBottom: '1px solid #222',
-        flexShrink: 0,
-      }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}>‹</button>
-        <span style={{ color: '#ccc', fontSize: 13, fontWeight: 500 }}>{projectName}</span>
-        {error && <span style={{ color: '#ff5555', fontSize: 11, marginLeft: 8 }}>{error}</span>}
-      </div>
-
-      {/* Tab bar */}
+      {/* Combined top + tab bar */}
       <div style={{
         display: 'flex', alignItems: 'center',
         background: '#111', borderBottom: '1px solid #222',
-        flexShrink: 0, overflowX: 'auto',
-        height: 34, minHeight: 34,
+        flexShrink: 0, height: 38, minHeight: 38, overflowX: 'auto',
       }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 8px 0 12px', flexShrink: 0 }}>‹</button>
+        <span style={{ color: '#555', fontSize: 13, paddingRight: 12, borderRight: '1px solid #222', flexShrink: 0 }}>{projectName}</span>
+        {error && <span style={{ color: '#ff5555', fontSize: 11, marginLeft: 8, flexShrink: 0 }}>{error}</span>}
         {sessions.map(s => (
           <div
             key={s.id}
@@ -194,6 +184,7 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
               <TerminalView
                 sessionId={s.id}
                 visible={s.id === activeId}
+                showHeader={false}
                 onClose={() => removeTab(s.id)}
                 onError={setError}
               />
