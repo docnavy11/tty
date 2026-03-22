@@ -20,6 +20,12 @@ const statusDot: Record<string, string> = {
   pending: '#555',
 }
 
+const inputSm: React.CSSProperties = {
+  background: '#0d0d0d', border: '1px solid #333', borderRadius: 3,
+  color: '#e0e0e0', fontFamily: 'inherit', fontSize: 12,
+  padding: '3px 8px', outline: 'none',
+}
+
 export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -44,32 +50,37 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
       .catch(err => setError(String(err)))
   }, [projectId])
 
-  const addAdhoc = async (e: React.FormEvent) => {
+  // Add a session: saves as project session definition AND launches it
+  const addSession = async (e: React.FormEvent) => {
     e.preventDefault()
     const target = quickConnect.trim()
     if (!target) return
+    setError(null)
     try {
-      let body: Record<string, unknown>
+      let defBody: Record<string, unknown>
       if (target === 'local') {
-        body = { authType: 'local', host: 'localhost', username: '' }
+        defBody = { name: 'local', host: 'localhost', username: '', authType: 'local', port: 22 }
       } else {
         const [username, host] = target.includes('@') ? target.split('@') : ['root', target]
-        body = { host, username, authType: 'key', projectId }
+        defBody = { name: target, host, username, authType: 'key', port: 22 }
       }
-      const res = await fetch('/api/sessions/adhoc', {
+
+      // Save as session definition
+      await fetch(`/api/projects/${projectId}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(defBody),
       })
-      if (!res.ok) throw new Error(await res.text())
-      const { sessionId } = await res.json()
-      const sessionRes = await fetch('/api/active-sessions')
-      const all: Session[] = await sessionRes.json()
-      const s = all.find(x => x.id === sessionId)
-      if (s) {
-        setSessions(prev => [...prev, s])
-        setActiveId(sessionId)
-      }
+
+      // Re-launch project (picks up new definition)
+      const launchRes = await fetch(`/api/projects/${projectId}/launch`, { method: 'POST' })
+      const { sessionIds } = await launchRes.json()
+
+      const allRes = await fetch('/api/active-sessions')
+      const all: Session[] = await allRes.json()
+      const mine = all.filter(s => sessionIds.includes(s.id))
+      setSessions(mine)
+      setActiveId(sessionIds[sessionIds.length - 1] ?? mine[0]?.id ?? null)
       setQuickConnect('')
       setShowInput(false)
     } catch (err) {
@@ -105,7 +116,7 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
         display: 'flex', alignItems: 'center',
         background: '#111', borderBottom: '1px solid #222',
         flexShrink: 0, overflowX: 'auto',
-        height: 34,
+        height: 34, minHeight: 34,
       }}>
         {sessions.map(s => (
           <div
@@ -133,19 +144,16 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
 
         {/* Quick-connect "+" */}
         {showInput ? (
-          <form onSubmit={addAdhoc} style={{ display: 'flex', alignItems: 'center', padding: '0 8px' }}>
+          <form onSubmit={addSession} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px' }}>
             <input
               autoFocus
               value={quickConnect}
               onChange={e => setQuickConnect(e.target.value)}
               onKeyDown={e => e.key === 'Escape' && setShowInput(false)}
               placeholder="user@host or local"
-              style={{
-                background: '#0d0d0d', border: '1px solid #333', borderRadius: 3,
-                color: '#e0e0e0', fontFamily: 'inherit', fontSize: 12,
-                padding: '3px 8px', outline: 'none', width: 160,
-              }}
+              style={{ ...inputSm, width: 160 }}
             />
+            <button type="submit" style={{ ...inputSm, cursor: 'pointer', color: '#50fa7b' }}>Add</button>
           </form>
         ) : (
           <button
@@ -158,8 +166,21 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
       {/* Terminals — all mounted, only active one visible */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {sessions.length === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#444', fontSize: 13 }}>
-            No sessions. Add one with +
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            height: '100%', gap: 16, color: '#444',
+          }}>
+            <span style={{ fontSize: 13 }}>No sessions in this project.</span>
+            <button
+              onClick={() => setShowInput(true)}
+              style={{
+                background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 4,
+                color: '#50fa7b', fontFamily: 'inherit', fontSize: 13,
+                padding: '7px 16px', cursor: 'pointer',
+              }}
+            >
+              + Add session
+            </button>
           </div>
         ) : (
           sessions.map(s => (
