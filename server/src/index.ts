@@ -7,6 +7,7 @@ import { mkdirSync } from 'fs'
 import { initDb } from './db/database.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { terminalRoutes } from './routes/terminal.js'
+import { sessionManager } from './services/SessionManager.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -18,6 +19,7 @@ const CLIENT_DIST = process.env.CLIENT_DIST ?? join(__dirname, '../../client/dis
 mkdirSync(DATA_DIR, { recursive: true })
 
 initDb(join(DATA_DIR, 'db.sqlite'))
+sessionManager.recover()
 
 const app = Fastify({ logger: true })
 

@@ -1,10 +1,12 @@
 import { Client } from 'ssh2'
 import type { ClientChannel, ConnectConfig } from 'ssh2'
 import { readFileSync } from 'fs'
+import { execSync } from 'child_process'
 import { randomUUID } from 'crypto'
 import type { WebSocket } from 'ws'
 import type { SessionConfig, StoredSession } from '../types.js'
 import { createLocal, killLocal } from './LocalBridge.js'
+import { saveSession, removeSession, loadAllSessions, updateSessionStatus } from '../db/sessions.js'
 
 interface LiveSession extends StoredSession {
   conn: Client
@@ -27,6 +29,7 @@ class SessionManager {
       lastActivity: new Date(),
     }
     this.sessions.set(id, session)
+    saveSession(session)
     return id
   }
 
@@ -38,13 +41,45 @@ class SessionManager {
     return Array.from(this.sessions.values())
   }
 
+  // Called on proxy boot — restore sessions from SQLite
+  recover(): void {
+    const rows = loadAllSessions()
+    let restored = 0
+
+    for (const session of rows) {
+      if (session.config.authType === 'local') {
+        // Check if tmux session is still alive
+        const alive = tmuxSessionExists(session.tmuxName)
+        if (alive) {
+          this.sessions.set(session.id, { ...session, status: 'detached' })
+          updateSessionStatus(session.id, 'detached')
+          restored++
+        } else {
+          // tmux died while proxy was down — clean up
+          removeSession(session.id)
+        }
+      } else {
+        // SSH sessions: restore as detached, reconnect when browser attaches
+        this.sessions.set(session.id, { ...session, status: 'detached' })
+        updateSessionStatus(session.id, 'detached')
+        restored++
+      }
+    }
+
+    if (restored > 0) {
+      console.log(`Recovered ${restored} session(s) from previous run`)
+    }
+  }
+
   async connect(id: string, ws: WebSocket, cols: number, rows: number): Promise<void> {
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session ${id} not found`)
 
     // Local session — no SSH, spawn tmux directly
     if (session.config.authType === 'local') {
-      this.sessions.set(id, { ...session, status: 'connected' })
+      const updated = { ...session, status: 'connected' as const }
+      this.sessions.set(id, updated)
+      updateSessionStatus(id, 'connected')
       createLocal(id, session.tmuxName, cols, rows, ws)
       return
     }
@@ -72,7 +107,6 @@ class SessionManager {
           (err, channel) => {
             if (err) { reject(err); return }
 
-            // Attach to existing tmux session or create new one
             channel.write(`tmux new-session -A -s ${session.tmuxName} -x ${cols} -y ${rows}\n`)
 
             const liveSession: LiveSession = {
@@ -83,7 +117,9 @@ class SessionManager {
               ws,
             }
             this.live.set(id, liveSession)
-            this.sessions.set(id, { ...session, status: 'connected' })
+            const updated = { ...session, status: 'connected' as const }
+            this.sessions.set(id, updated)
+            updateSessionStatus(id, 'connected')
 
             this.pipeChannelToWs(channel, ws, id)
             this.pipeWsToChannel(ws, conn, channel, session.tmuxName)
@@ -104,23 +140,15 @@ class SessionManager {
       }
 
       if (session.config.authType === 'key') {
-        // Use specified key or fall back to default keys on the server
         const home = process.env.HOME ?? '/root'
         const candidates = session.config.keyPath
           ? [session.config.keyPath.replace(/^~/, home)]
-          : [
-              `${home}/.ssh/id_ed25519`,
-              `${home}/.ssh/id_rsa`,
-              `${home}/.ssh/id_ecdsa`,
-            ]
+          : [`${home}/.ssh/id_ed25519`, `${home}/.ssh/id_rsa`, `${home}/.ssh/id_ecdsa`]
         for (const keyPath of candidates) {
-          try {
-            connectConfig.privateKey = readFileSync(keyPath)
-            break
-          } catch { /* try next */ }
+          try { connectConfig.privateKey = readFileSync(keyPath); break } catch { /* try next */ }
         }
         if (!connectConfig.privateKey) {
-          throw new Error('No SSH key found. Add a key to ~/.ssh/ on the proxy server.')
+          throw new Error('No SSH key found on proxy server.')
         }
       } else if (session.config.authType === 'password') {
         connectConfig.password = session.config.password
@@ -138,11 +166,12 @@ class SessionManager {
       const live = this.live.get(sessionId)
       if (live) {
         this.live.delete(sessionId)
-        this.sessions.set(sessionId, { ...live, status: 'detached' })
+        const updated = { ...live, status: 'detached' as const }
+        this.sessions.set(sessionId, updated)
+        updateSessionStatus(sessionId, 'detached')
       }
       if (ws.readyState === 1) ws.close()
     }
-
     channel.on('data', onData)
     channel.once('close', onClose)
   }
@@ -160,9 +189,7 @@ class SessionManager {
             (err, ch) => { if (!err) ch.resume() }
           )
         }
-      } catch {
-        // ignore malformed messages
-      }
+      } catch { /* ignore malformed messages */ }
     })
   }
 
@@ -171,6 +198,7 @@ class SessionManager {
     if (session?.config.authType === 'local') {
       killLocal(id)
       this.sessions.delete(id)
+      removeSession(id)
       return
     }
 
@@ -179,13 +207,20 @@ class SessionManager {
       live.conn.exec(`tmux kill-session -t ${live.tmuxName}`, (err, ch) => {
         if (!err) ch.resume()
       })
-      setTimeout(() => {
-        live.ws?.close()
-        live.conn.end()
-      }, 300)
+      setTimeout(() => { live.ws?.close(); live.conn.end() }, 300)
       this.live.delete(id)
     }
     this.sessions.delete(id)
+    removeSession(id)
+  }
+}
+
+function tmuxSessionExists(name: string): boolean {
+  try {
+    execSync(`tmux has-session -t ${name}`, { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
   }
 }
 
