@@ -7,6 +7,7 @@ import { mkdirSync } from 'fs'
 import { initDb } from './db/database.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { terminalRoutes } from './routes/terminal.js'
+import { projectRoutes } from './routes/projects.js'
 import { sessionManager } from './services/SessionManager.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -34,6 +35,7 @@ app.get('/api/health', async () => ({ ok: true }))
 
 await app.register(sessionRoutes)
 await app.register(terminalRoutes)
+await app.register(projectRoutes)
 
 // SPA fallback
 app.setNotFoundHandler(async (req, reply) => {

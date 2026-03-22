@@ -7,6 +7,7 @@ import type { WebSocket } from 'ws'
 import type { SessionConfig, StoredSession } from '../types.js'
 import { createLocal, killLocal } from './LocalBridge.js'
 import { saveSession, removeSession, loadAllSessions, updateSessionStatus } from '../db/sessions.js'
+import { projectManager } from './ProjectManager.js'
 
 interface LiveSession extends StoredSession {
   conn: Client
@@ -191,6 +192,29 @@ class SessionManager {
         }
       } catch { /* ignore malformed messages */ }
     })
+  }
+
+  launchProject(projectId: string): string[] {
+    // Return existing sessions if already launched
+    const existing = Array.from(this.sessions.values()).filter(s => s.config.projectId === projectId)
+    if (existing.length > 0) return existing.map(s => s.id)
+
+    const defs = projectManager.listSessionDefs(projectId)
+    return defs.map(def => this.create({
+      host: def.host,
+      port: def.port,
+      username: def.username,
+      authType: def.authType as 'key' | 'password' | 'local',
+      keyPath: def.keyPath,
+      displayName: def.name,
+      projectId,
+      projectSessionId: def.id,
+    }))
+  }
+
+  stopProject(projectId: string): void {
+    const sessions = Array.from(this.sessions.values()).filter(s => s.config.projectId === projectId)
+    for (const s of sessions) this.kill(s.id)
   }
 
   kill(id: string): void {
