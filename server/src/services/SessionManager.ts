@@ -81,7 +81,10 @@ class SessionManager {
       const updated = { ...session, status: 'connected' as const }
       this.sessions.set(id, updated)
       updateSessionStatus(id, 'connected')
-      createLocal(id, session.tmuxName, cols, rows, ws)
+      createLocal(id, session.tmuxName, cols, rows, ws, () => {
+        this.sessions.delete(id)
+        removeSession(id)
+      })
       return
     }
 

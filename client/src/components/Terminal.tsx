@@ -79,7 +79,11 @@ export function TerminalView({ sessionId, visible = true, onClose, onError }: Pr
     }
 
     ws.onclose = (e) => {
-      if (e.code !== 1000) {
+      if (e.code === 4001) {
+        // Session ended naturally (e.g. user typed exit)
+        term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n')
+        setTimeout(() => onClose(), 1000)
+      } else if (e.code !== 1000) {
         term.write(`\r\n\x1b[31m[disconnected: ${e.reason || 'connection closed'}]\x1b[0m\r\n`)
       }
     }

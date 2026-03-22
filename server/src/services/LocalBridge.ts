@@ -12,13 +12,13 @@ export interface LocalSession {
 
 const sessions = new Map<string, LocalSession>()
 
-export function createLocal(id: string, tmuxName: string, cols: number, rows: number, ws: WebSocket): void {
+export function createLocal(id: string, tmuxName: string, cols: number, rows: number, ws: WebSocket, onSessionEnd?: () => void): void {
   // Steal existing if alive
   const existing = sessions.get(id)
   if (existing) {
     if (existing.ws?.readyState === 1) existing.ws.close(1000, 'stolen')
     existing.ws = ws
-    pipe(existing, ws)
+    pipe(existing, ws, onSessionEnd)
     return
   }
 
@@ -33,17 +33,19 @@ export function createLocal(id: string, tmuxName: string, cols: number, rows: nu
   const session: LocalSession = { id, tmuxName, proc, ws, status: 'connected' }
   sessions.set(id, session)
 
-  pipe(session, ws)
+  pipe(session, ws, onSessionEnd)
 }
 
-function pipe(session: LocalSession, ws: WebSocket) {
+function pipe(session: LocalSession, ws: WebSocket, onSessionEnd?: () => void) {
   const onData = session.proc.onData((data) => {
     if (ws.readyState === 1) ws.send(Buffer.from(data))
   })
 
   const onExit = session.proc.onExit(() => {
     sessions.delete(session.id)
-    if (ws.readyState === 1) ws.close()
+    // 4001 = session ended naturally — client uses this to navigate back
+    if (ws.readyState === 1) ws.close(4001, 'session ended')
+    onSessionEnd?.()
   })
 
   ws.on('message', (data: Buffer | string) => {
