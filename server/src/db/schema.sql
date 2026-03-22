@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS project_sessions (
 CREATE TABLE IF NOT EXISTS active_sessions (
     id                      TEXT PRIMARY KEY,
     project_id              TEXT REFERENCES projects(id),
-    project_session_id      TEXT REFERENCES project_sessions(id),
+    project_session_id      TEXT REFERENCES project_sessions(id) ON DELETE SET NULL,
     host                    TEXT NOT NULL,
     port                    INTEGER DEFAULT 22,
     username                TEXT NOT NULL DEFAULT '',
