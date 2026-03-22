@@ -1,0 +1,25 @@
+[Unit]
+Description=tty web terminal
+After=network.target
+
+[Service]
+Type=simple
+User=dev
+WorkingDirectory=/home/dev/projects/tty
+ExecStart=/home/dev/.nvm/versions/node/v22.22.1/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=3
+
+Environment=PORT=3789
+Environment=HOST=0.0.0.0
+Environment=DATA_DIR=/home/dev/projects/tty/data
+Environment=CLIENT_DIST=/home/dev/projects/tty/client/dist
+
+# Give node-pty access to a real TTY
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tty
+
+[Install]
+WantedBy=multi-user.target

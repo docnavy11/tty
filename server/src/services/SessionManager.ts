@@ -5,7 +5,7 @@ import { execSync } from 'child_process'
 import { randomUUID } from 'crypto'
 import type { WebSocket } from 'ws'
 import type { SessionConfig, StoredSession } from '../types.js'
-import { createLocal, killLocal } from './LocalBridge.js'
+import { createLocal, spawnLocal, killLocal } from './LocalBridge.js'
 import { saveSession, removeSession, loadAllSessions, updateSessionStatus } from '../db/sessions.js'
 import { projectManager } from './ProjectManager.js'
 
@@ -202,6 +202,12 @@ class SessionManager {
     const existing = Array.from(this.sessions.values()).filter(s => s.config.projectId === projectId)
     const launchedDefIds = new Set(existing.map(s => s.config.projectSessionId))
 
+    // Sync displayName from latest session def (picks up renames)
+    for (const session of existing) {
+      const def = defs.find(d => d.id === session.config.projectSessionId)
+      if (def) session.config.displayName = def.name
+    }
+
     // Launch any definitions not yet running
     const newIds = defs
       .filter(def => !launchedDefIds.has(def.id))
@@ -217,6 +223,20 @@ class SessionManager {
       }))
 
     return [...existing.map(s => s.id), ...newIds]
+  }
+
+  // Spawn a local session's pty immediately without waiting for a browser WS.
+  // Used by autostart so processes are actually running on boot.
+  spawn(id: string): void {
+    const session = this.sessions.get(id)
+    if (!session || session.config.authType !== 'local') return
+    spawnLocal(id, session.tmuxName, () => {
+      this.sessions.delete(id)
+      removeSession(id)
+    })
+    const updated = { ...session, status: 'detached' as const }
+    this.sessions.set(id, updated)
+    updateSessionStatus(id, 'detached')
   }
 
   stopProject(projectId: string): void {

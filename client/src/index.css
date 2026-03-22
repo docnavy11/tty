@@ -6,6 +6,9 @@
 
 html, body, #root {
   height: 100%;
+  height: var(--vh, 100%);
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 body {
@@ -13,4 +16,18 @@ body {
   color: #e0e0e0;
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
   font-size: 14px;
+  /* Prevent double-tap zoom without blocking scroll */
+  touch-action: manipulation;
+}
+
+/* Prevent iOS from zooming into inputs (requires font-size >= 16px) */
+input, select, textarea {
+  font-size: 16px;
+}
+
+/* xterm: prevent browser scroll from taking over inside terminal */
+.xterm,
+.xterm-viewport,
+.xterm-screen {
+  touch-action: none;
 }

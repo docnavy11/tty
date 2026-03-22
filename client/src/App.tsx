@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { ProjectHome, type ProjectWithStatus } from './components/ProjectHome'
 import { ProjectWorkspace } from './components/ProjectWorkspace'
 import { TerminalView } from './components/Terminal'
+import { SettingsPanel } from './components/SettingsPanel'
+import { useSettings } from './hooks/useSettings'
 
 interface Session {
   id: string
@@ -18,6 +20,8 @@ export default function App() {
   const [view, setView] = useState<View>({ type: 'home' })
   const [projects, setProjects] = useState<ProjectWithStatus[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [showSettings, setShowSettings] = useState(false)
+  const { settings, reload: reloadSettings } = useSettings()
 
   const refresh = useCallback(async () => {
     const [pRes, sRes] = await Promise.all([
@@ -34,19 +38,30 @@ export default function App() {
 
   if (view.type === 'workspace') {
     return (
-      <ProjectWorkspace
-        projectId={view.projectId}
-        projectName={view.projectName}
-        onBack={() => { setView({ type: 'home' }); refresh() }}
-      />
+      <>
+        <ProjectWorkspace
+          projectId={view.projectId}
+          projectName={view.projectName}
+          settings={settings}
+          onBack={() => { setView({ type: 'home' }); refresh() }}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+        <SettingsPanel
+          open={showSettings}
+          current={settings}
+          onClose={() => setShowSettings(false)}
+          onSave={reloadSettings}
+        />
+      </>
     )
   }
 
   if (view.type === 'terminal') {
     return (
-      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#1a1a1a' }}>
+      <div style={{ height: 'var(--vh, 100dvh)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#1a1a1a' }}>
         <TerminalView
           sessionId={view.sessionId}
+          settings={settings}
           onClose={() => { setView({ type: 'home' }); refresh() }}
           onError={() => {}}
         />
@@ -55,16 +70,25 @@ export default function App() {
   }
 
   return (
-    <ProjectHome
-      projects={projects}
-      ungroupedSessions={ungrouped}
-      onOpenProject={(id, name) => setView({ type: 'workspace', projectId: id, projectName: name })}
-      onOpenSession={(id) => setView({ type: 'terminal', sessionId: id })}
-      onKillSession={async (id) => {
-        await fetch(`/api/active-sessions/${id}`, { method: 'DELETE' })
-        refresh()
-      }}
-      onRefresh={refresh}
-    />
+    <>
+      <ProjectHome
+        projects={projects}
+        ungroupedSessions={ungrouped}
+        onOpenProject={(id, name) => setView({ type: 'workspace', projectId: id, projectName: name })}
+        onOpenSession={(id) => setView({ type: 'terminal', sessionId: id })}
+        onKillSession={async (id) => {
+          await fetch(`/api/active-sessions/${id}`, { method: 'DELETE' })
+          refresh()
+        }}
+        onRefresh={refresh}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+      <SettingsPanel
+        open={showSettings}
+        current={settings}
+        onClose={() => setShowSettings(false)}
+        onSave={reloadSettings}
+      />
+    </>
   )
 }
