@@ -95,9 +95,25 @@ class SessionManager {
         readyTimeout: 15000,
       }
 
-      if (session.config.authType === 'key' && session.config.keyPath) {
-        const keyPath = session.config.keyPath.replace(/^~/, process.env.HOME ?? '')
-        connectConfig.privateKey = readFileSync(keyPath)
+      if (session.config.authType === 'key') {
+        // Use specified key or fall back to default keys on the server
+        const home = process.env.HOME ?? '/root'
+        const candidates = session.config.keyPath
+          ? [session.config.keyPath.replace(/^~/, home)]
+          : [
+              `${home}/.ssh/id_ed25519`,
+              `${home}/.ssh/id_rsa`,
+              `${home}/.ssh/id_ecdsa`,
+            ]
+        for (const keyPath of candidates) {
+          try {
+            connectConfig.privateKey = readFileSync(keyPath)
+            break
+          } catch { /* try next */ }
+        }
+        if (!connectConfig.privateKey) {
+          throw new Error('No SSH key found. Add a key to ~/.ssh/ on the proxy server.')
+        }
       } else if (session.config.authType === 'password') {
         connectConfig.password = session.config.password
       }
