@@ -198,21 +198,25 @@ class SessionManager {
   }
 
   launchProject(projectId: string): string[] {
-    // Return existing sessions if already launched
-    const existing = Array.from(this.sessions.values()).filter(s => s.config.projectId === projectId)
-    if (existing.length > 0) return existing.map(s => s.id)
-
     const defs = projectManager.listSessionDefs(projectId)
-    return defs.map(def => this.create({
-      host: def.host,
-      port: def.port,
-      username: def.username,
-      authType: def.authType as 'key' | 'password' | 'local',
-      keyPath: def.keyPath,
-      displayName: def.name,
-      projectId,
-      projectSessionId: def.id,
-    }))
+    const existing = Array.from(this.sessions.values()).filter(s => s.config.projectId === projectId)
+    const launchedDefIds = new Set(existing.map(s => s.config.projectSessionId))
+
+    // Launch any definitions not yet running
+    const newIds = defs
+      .filter(def => !launchedDefIds.has(def.id))
+      .map(def => this.create({
+        host: def.host,
+        port: def.port,
+        username: def.username,
+        authType: def.authType as 'key' | 'password' | 'local',
+        keyPath: def.keyPath,
+        displayName: def.name,
+        projectId,
+        projectSessionId: def.id,
+      }))
+
+    return [...existing.map(s => s.id), ...newIds]
   }
 
   stopProject(projectId: string): void {
