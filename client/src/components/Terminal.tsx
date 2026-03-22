@@ -6,12 +6,21 @@ import '@xterm/xterm/css/xterm.css'
 
 interface Props {
   sessionId: string
+  visible?: boolean
   onClose: () => void
   onError: (msg: string) => void
 }
 
-export function TerminalView({ sessionId, onClose, onError }: Props) {
+export function TerminalView({ sessionId, visible = true, onClose, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const fitAddonRef = useRef<FitAddon | null>(null)
+
+  // Re-fit when becoming visible (tab switch)
+  useEffect(() => {
+    if (visible && fitAddonRef.current) {
+      setTimeout(() => fitAddonRef.current?.fit(), 0)
+    }
+  }, [visible])
 
   useEffect(() => {
     const term = new Terminal({
@@ -42,6 +51,7 @@ export function TerminalView({ sessionId, onClose, onError }: Props) {
     })
 
     const fitAddon = new FitAddon()
+    fitAddonRef.current = fitAddon
     term.loadAddon(fitAddon)
     term.loadAddon(new WebLinksAddon())
     term.open(containerRef.current!)
@@ -89,6 +99,7 @@ export function TerminalView({ sessionId, onClose, onError }: Props) {
     observer.observe(containerRef.current!)
 
     return () => {
+      fitAddonRef.current = null
       observer.disconnect()
       ws.close()
       term.dispose()
@@ -96,7 +107,7 @@ export function TerminalView({ sessionId, onClose, onError }: Props) {
   }, [sessionId])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', visibility: visible ? 'visible' : 'hidden', position: visible ? 'relative' : 'absolute', width: '100%' }}>
       <div style={{
         display: 'flex',
         alignItems: 'center',
