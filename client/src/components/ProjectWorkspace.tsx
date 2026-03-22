@@ -56,6 +56,7 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
     const target = quickConnect.trim()
     if (!target) return
     setError(null)
+    let defId: string | null = null
     try {
       let defBody: Record<string, unknown>
       if (target === 'local') {
@@ -66,14 +67,18 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
       }
 
       // Save as session definition
-      await fetch(`/api/projects/${projectId}/sessions`, {
+      const defRes = await fetch(`/api/projects/${projectId}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(defBody),
       })
+      if (!defRes.ok) throw new Error(await defRes.text())
+      const def = await defRes.json()
+      defId = def.id
 
       // Re-launch project (picks up new definition)
       const launchRes = await fetch(`/api/projects/${projectId}/launch`, { method: 'POST' })
+      if (!launchRes.ok) throw new Error(await launchRes.text())
       const { sessionIds } = await launchRes.json()
 
       const allRes = await fetch('/api/active-sessions')
@@ -84,7 +89,11 @@ export function ProjectWorkspace({ projectId, projectName, onBack }: Props) {
       setQuickConnect('')
       setShowInput(false)
     } catch (err) {
-      setError(String(err))
+      // Roll back the session definition if launch failed
+      if (defId) {
+        await fetch(`/api/projects/${projectId}/sessions/${defId}`, { method: 'DELETE' }).catch(() => {})
+      }
+      setError(err instanceof Error ? err.message : String(err))
     }
   }
 
