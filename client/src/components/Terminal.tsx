@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ITheme } from '@xterm/xterm'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -123,12 +123,27 @@ interface Props {
   onActivity?: (status: 'busy' | 'done' | 'idle') => void
 }
 
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+
+const btnStyle: React.CSSProperties = {
+  background: 'none', border: 'none', color: '#999', cursor: 'pointer',
+  fontSize: 13, padding: '8px 14px', flexShrink: 0, userSelect: 'none',
+}
+
 export function TerminalView({ sessionId, visible = true, showHeader = true, settings, onClose, onError, onActivity }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const visibleRef = useRef(visible)
   useEffect(() => { visibleRef.current = visible }, [visible])
+
+  // Toolbar state — Ctrl is sticky: tap Ctrl, then type a key to send Ctrl+key
+  const [ctrlActive, setCtrlActive] = useState(false)
+  const ctrlActiveRef = useRef(false)
+  useEffect(() => { ctrlActiveRef.current = ctrlActive }, [ctrlActive])
+
+  // Bridge from render-side toolbar buttons into the effect's wsRef closure
+  const sendRef = useRef<(data: string) => void>(() => {})
 
   // Re-fit and focus when becoming visible (tab switch or initial open)
   useEffect(() => {
@@ -195,11 +210,24 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       if (sel) navigator.clipboard?.writeText(sel).catch(() => {})
     })
 
-    // Register onData once — always writes to the current wsRef
-    const onDataDispose = term.onData((data) => {
-      if (wsRef?.readyState === WebSocket.OPEN) {
+    // Toolbar send bridge — captures wsRef by variable (stays current across reconnects)
+    sendRef.current = (data: string) => {
+      if (wsRef?.readyState === WebSocket.OPEN)
         wsRef.send(JSON.stringify({ type: 'input', data }))
+    }
+
+    // Register onData once — always writes to the current wsRef.
+    // When Ctrl is sticky-active, convert the next typed letter to a Ctrl+key sequence.
+    const onDataDispose = term.onData((data) => {
+      let toSend = data
+      if (ctrlActiveRef.current && data.length === 1) {
+        const code = data.toUpperCase().charCodeAt(0) - 64
+        if (code >= 1 && code <= 26) toSend = String.fromCharCode(code)
+        ctrlActiveRef.current = false
+        setCtrlActive(false)
       }
+      if (wsRef?.readyState === WebSocket.OPEN)
+        wsRef.send(JSON.stringify({ type: 'input', data: toSend }))
     })
 
     // Ctrl+Shift+C/V → copy/paste
@@ -508,6 +536,32 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
         }}>
           <span style={{ color: '#888', fontSize: 12 }}>{sessionId.slice(0, 8)}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 14, padding: '2px 8px' }}>✕</button>
+        </div>
+      )}
+      {isTouchDevice && (
+        <div style={{
+          display: 'flex', flexShrink: 0, background: '#111', borderTop: '1px solid #2a2a2a',
+          overflowX: 'auto', overflowY: 'hidden',
+        }}>
+          {[
+            { label: 'Esc',  seq: '\x1b' },
+            { label: 'Tab',  seq: '\t' },
+            { label: '↑',    seq: '\x1b[A' },
+            { label: '↓',    seq: '\x1b[B' },
+            { label: '←',    seq: '\x1b[D' },
+            { label: '→',    seq: '\x1b[C' },
+          ].map(({ label, seq }) => (
+            <button
+              key={label}
+              onPointerDown={(e) => { e.preventDefault(); sendRef.current(seq) }}
+              style={btnStyle}
+            >{label}</button>
+          ))}
+          <button
+            onPointerDown={(e) => { e.preventDefault(); setCtrlActive((v: boolean) => !v) }}
+            style={{ ...btnStyle, color: ctrlActive ? '#50fa7b' : '#999', fontWeight: ctrlActive ? 700 : 400 }}
+          >Ctrl</button>
+
         </div>
       )}
       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden' }} />
