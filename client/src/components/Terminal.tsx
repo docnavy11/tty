@@ -1,10 +1,117 @@
 import { useEffect, useRef } from 'react'
+import type { ITheme } from '@xterm/xterm'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { THEMES } from '../themes'
 import type { AppSettings } from '../hooks/useSettings'
+
+// Convert xterm.js color mode+value to a CSS color string.
+// Modes: 0=default, 1=16-color palette, 2=256-color palette, 3=RGB true color
+function cellColor(mode: number, color: number, palette: (string | undefined)[]): string | undefined {
+  if (mode === 1) return palette[color]
+  if (mode === 2) {
+    if (color < 16) return palette[color]
+    if (color < 232) {
+      const n = color - 16
+      const r = Math.floor(n / 36), g = Math.floor((n % 36) / 6), b = n % 6
+      const c = (x: number) => x ? x * 40 + 55 : 0
+      return `rgb(${c(r)},${c(g)},${c(b)})`
+    }
+    const v = (color - 232) * 10 + 8
+    return `rgb(${v},${v},${v})`
+  }
+  if (mode === 3) return `rgb(${(color >> 16) & 0xff},${(color >> 8) & 0xff},${color & 0xff})`
+}
+
+function buildColoredHTML(term: Terminal, theme: ITheme): string {
+  const palette = [
+    theme.black, theme.red, theme.green, theme.yellow,
+    theme.blue, theme.magenta, theme.cyan, theme.white,
+    theme.brightBlack, theme.brightRed, theme.brightGreen, theme.brightYellow,
+    theme.brightBlue, theme.brightMagenta, theme.brightCyan, theme.brightWhite,
+  ]
+  const buf = term.buffer.active
+  const htmlLines: string[] = []
+
+  for (let y = 0; y < buf.length; y++) {
+    const line = buf.getLine(y)
+    if (!line) { htmlLines.push(''); continue }
+
+    let html = '', lastStyle = '', spanOpen = false
+    for (let x = 0; x < term.cols; x++) {
+      const cell = line.getCell(x)
+      if (!cell || cell.getWidth() === 0) continue
+
+      let fg = cellColor(cell.getFgColorMode(), cell.getFgColor(), palette)
+      let bg = cellColor(cell.getBgColorMode(), cell.getBgColor(), palette)
+      if (cell.isInverse()) [fg, bg] = [bg ?? theme.foreground, fg ?? theme.background]
+
+      const parts: string[] = []
+      if (fg) parts.push(`color:${fg}`)
+      if (bg) parts.push(`background:${bg}`)
+      if (cell.isBold()) parts.push('font-weight:bold')
+      if (cell.isItalic()) parts.push('font-style:italic')
+      if (cell.isUnderline()) parts.push('text-decoration:underline')
+      if (cell.isDim()) parts.push('opacity:0.5')
+      const style = parts.join(';')
+
+      const ch = (cell.getChars() || ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      if (style !== lastStyle) {
+        if (spanOpen) html += '</span>'
+        html += style ? `<span style="${style}">` : ''
+        spanOpen = !!style
+        lastStyle = style
+      }
+      html += ch
+    }
+    if (spanOpen) html += '</span>'
+    htmlLines.push(html)
+  }
+
+  while (htmlLines.length && !htmlLines[htmlLines.length - 1].replace(/<[^>]*>/g, '').trim()) htmlLines.pop()
+  return htmlLines.join('\n')
+}
+
+// Highlight search matches inside a DOM element using TreeWalker (works across spans).
+function applySearchHighlights(root: Element, query: string, activeIdx: number): number {
+  // Remove previous marks by restoring text nodes
+  root.querySelectorAll('mark[data-search]').forEach(m => m.replaceWith(...Array.from(m.childNodes)))
+  root.normalize()
+  if (!query) return 0
+
+  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const textNodes: Text[] = []
+  let n: Node | null
+  while ((n = walker.nextNode())) textNodes.push(n as Text)
+
+  let total = 0
+  for (const textNode of textNodes) {
+    const t = textNode.textContent ?? ''
+    re.lastIndex = 0
+    const nodeMatches = [...t.matchAll(re)]
+    if (!nodeMatches.length) continue
+
+    const frag = document.createDocumentFragment()
+    let last = 0
+    for (const m of nodeMatches) {
+      frag.appendChild(document.createTextNode(t.slice(last, m.index)))
+      const mark = document.createElement('mark')
+      mark.dataset.search = ''
+      const isCurrent = total++ === activeIdx
+      mark.style.cssText = `background:${isCurrent ? '#f80' : '#ff6'};color:#000;border-radius:2px`
+      mark.textContent = m[0]
+      frag.appendChild(mark)
+      last = (m.index ?? 0) + m[0].length
+    }
+    frag.appendChild(document.createTextNode(t.slice(last)))
+    textNode.replaceWith(frag)
+  }
+  root.querySelectorAll('mark[data-search]')[activeIdx]?.scrollIntoView({ block: 'nearest' })
+  return total
+}
 
 interface Props {
   sessionId: string
@@ -13,9 +120,10 @@ interface Props {
   settings?: AppSettings
   onClose: () => void
   onError: (msg: string) => void
+  onActivity?: (status: 'busy' | 'idle') => void
 }
 
-export function TerminalView({ sessionId, visible = true, showHeader = true, settings, onClose, onError }: Props) {
+export function TerminalView({ sessionId, visible = true, showHeader = true, settings, onClose, onError, onActivity }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -47,6 +155,8 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       fontSize: settings?.fontSize ?? 14,
       fontFamily: settings?.fontFamily ?? "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme,
+      copyOnSelect: true,
+      scrollback: 5000,
     })
 
     termRef.current = term
@@ -64,11 +174,18 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
     let wsRef: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let pingTimer: ReturnType<typeof setInterval> | null = null
+    let activityTimer: ReturnType<typeof setTimeout> | null = null
     let reconnectDelay = 1000
 
     function clearTimers() {
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
       if (pingTimer) { clearInterval(pingTimer); pingTimer = null }
+    }
+
+    function signalActivity() {
+      onActivity?.('busy')
+      if (activityTimer) clearTimeout(activityTimer)
+      activityTimer = setTimeout(() => onActivity?.('idle'), 2000)
     }
 
     // Register onData once — always writes to the current wsRef
@@ -78,6 +195,148 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       }
     })
 
+    // Ctrl+Shift+C/V → copy/paste
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown' || !e.ctrlKey || !e.shiftKey) return true
+      if (e.key === 'c' || e.key === 'C') {
+        copySelection()
+        return false
+      }
+      if (e.key === 'v' || e.key === 'V') {
+        pasteFromClipboard()
+        return false
+      }
+      return true
+    })
+
+    function copySelection() {
+      const sel = term.getSelection()
+      if (!sel) return
+      navigator.clipboard?.writeText(sel).catch(() => {
+        const ta = document.createElement('textarea')
+        ta.value = sel
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      })
+    }
+
+    function pasteFromClipboard() {
+      navigator.clipboard?.readText().then((text) => {
+        if (text && wsRef?.readyState === WebSocket.OPEN)
+          wsRef.send(JSON.stringify({ type: 'input', data: text }))
+      }).catch(() => {})
+    }
+
+    function openCopyModal() {
+      const theme = settings ? (THEMES[settings.theme] ?? THEMES.dracula) : THEMES.dracula
+      const coloredHTML = buildColoredHTML(term, theme)
+
+      const overlay = document.createElement('div')
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center'
+
+      const box = document.createElement('div')
+      box.style.cssText = 'background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:16px;width:80vw;max-width:800px;display:flex;flex-direction:column;gap:10px'
+
+      // Search row
+      const searchRow = document.createElement('div')
+      searchRow.style.cssText = 'display:flex;gap:8px;align-items:center'
+      const searchInput = document.createElement('input')
+      searchInput.placeholder = 'Search…'
+      searchInput.style.cssText = 'flex:1;background:#111;color:#ccc;border:1px solid #333;border-radius:4px;padding:6px 10px;font-size:13px;font-family:monospace;outline:none'
+      const matchCount = document.createElement('span')
+      matchCount.style.cssText = 'color:#666;font-size:12px;font-family:sans-serif;white-space:nowrap;min-width:80px;text-align:right'
+      const btnStyle = 'padding:4px 10px;background:#333;color:#ccc;border:none;border-radius:4px;cursor:pointer;font-size:13px'
+      const prevBtn = document.createElement('button')
+      prevBtn.textContent = '↑'
+      prevBtn.style.cssText = btnStyle
+      prevBtn.onclick = () => navigate(-1)
+      const nextBtn = document.createElement('button')
+      nextBtn.textContent = '↓'
+      nextBtn.style.cssText = btnStyle
+      nextBtn.onclick = () => navigate(1)
+      searchRow.append(searchInput, prevBtn, nextBtn, matchCount)
+
+      const label = document.createElement('div')
+      label.textContent = 'Select text to copy, then press Ctrl+C'
+      label.style.cssText = 'color:#888;font-size:12px;font-family:sans-serif'
+
+      const content = document.createElement('div')
+      const font = settings?.fontFamily ?? "'JetBrains Mono', 'Fira Code', monospace"
+      const fontSize = settings?.fontSize ?? 14
+      content.style.cssText = `width:100%;height:50vh;background:${theme.background};color:${theme.foreground};border:1px solid #333;border-radius:4px;padding:8px;font-family:${font};font-size:${fontSize}px;overflow:auto;white-space:pre;user-select:text;box-sizing:border-box`
+      content.innerHTML = coloredHTML
+
+      let currentMatch = 0
+
+      function updateSearch(q: string) {
+        content.innerHTML = coloredHTML
+        const total = applySearchHighlights(content, q, currentMatch)
+        if (!q) { matchCount.textContent = ''; return }
+        if (!total) { matchCount.textContent = 'no matches'; return }
+        if (currentMatch >= total) currentMatch = 0
+        matchCount.textContent = `${currentMatch + 1}/${total}`
+      }
+
+      function navigate(dir: 1 | -1) {
+        const total = content.querySelectorAll('mark[data-search]').length
+        if (!total) return
+        currentMatch = (currentMatch + dir + total) % total
+        updateSearch(searchInput.value)
+      }
+
+      searchInput.addEventListener('input', () => { currentMatch = 0; updateSearch(searchInput.value) })
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); navigate(e.shiftKey ? -1 : 1) }
+      })
+
+      const close = document.createElement('button')
+      close.textContent = 'Close'
+      close.style.cssText = 'align-self:flex-end;padding:6px 16px;background:#333;color:#ccc;border:none;border-radius:4px;cursor:pointer;font-size:13px'
+
+      box.append(searchRow, label, content, close)
+      overlay.appendChild(box)
+
+      const closeModal = () => { overlay.remove(); document.removeEventListener('keydown', onKey) }
+      const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal() }
+      document.addEventListener('keydown', onKey)
+      overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeModal() })
+      close.onclick = closeModal
+
+      document.body.appendChild(overlay)
+      searchInput.focus()
+    }
+
+    // Right-click context menu
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+      const sel = term.getSelection()
+      const menu = document.createElement('div')
+      menu.style.cssText = 'position:fixed;background:#1e1e1e;border:1px solid #444;border-radius:6px;padding:4px 0;z-index:9999;min-width:130px;box-shadow:0 4px 12px rgba(0,0,0,0.6);font-family:sans-serif;font-size:13px'
+      menu.style.left = `${e.clientX}px`
+      menu.style.top = `${e.clientY}px`
+
+      const addItem = (label: string, shortcut: string, disabled: boolean, onClick: () => void) => {
+        const item = document.createElement('div')
+        item.style.cssText = `display:flex;justify-content:space-between;gap:16px;padding:6px 14px;cursor:${disabled ? 'default' : 'pointer'};color:${disabled ? '#555' : '#ccc'}`
+        item.innerHTML = `<span>${label}</span><span style="color:#666;font-size:11px">${shortcut}</span>`
+        if (!disabled) {
+          item.onmouseenter = () => { item.style.background = '#2a2a2a' }
+          item.onmouseleave = () => { item.style.background = '' }
+          item.onmousedown = (ev) => { ev.preventDefault(); onClick(); menu.remove() }
+        }
+        menu.appendChild(item)
+      }
+
+      addItem('Copy', '⌃⇧C', !sel, copySelection)
+      addItem('Copy screen…', '', false, () => openCopyModal())
+      addItem('Paste', '⌃⇧V', false, pasteFromClipboard)
+
+      document.body.appendChild(menu)
+      const dismiss = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) { menu.remove(); document.removeEventListener('mousedown', dismiss) } }
+      setTimeout(() => document.addEventListener('mousedown', dismiss), 0)
+    }
     function connect() {
       if (destroyed) return
       clearTimers()
@@ -99,12 +358,14 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       ws.onmessage = (e) => {
         if (e.data instanceof ArrayBuffer) {
           term.write(new Uint8Array(e.data))
+          signalActivity()
         } else {
           try {
             const msg = JSON.parse(e.data)
             if (msg.type === 'error') onError(msg.message)
           } catch {
             term.write(e.data)
+            signalActivity()
           }
         }
       }
@@ -205,6 +466,7 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       }
       raf = requestAnimationFrame(step)
     }
+    el.addEventListener('contextmenu', onContextMenu)
     el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true })
     el.addEventListener('touchmove', onTouchMove, { passive: false, capture: true })
     el.addEventListener('touchend', onTouchEnd, { passive: true, capture: true })
@@ -212,6 +474,7 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
     return () => {
       destroyed = true
       clearTimers()
+      if (activityTimer) clearTimeout(activityTimer)
       onDataDispose.dispose()
       fitAddonRef.current = null
       termRef.current = null
@@ -220,6 +483,7 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       el.removeEventListener('touchstart', onTouchStart, { capture: true })
       el.removeEventListener('touchmove', onTouchMove, { capture: true })
       el.removeEventListener('touchend', onTouchEnd, { capture: true })
+      el.removeEventListener('contextmenu', onContextMenu)
       wsRef?.close()
       term.dispose()
     }
