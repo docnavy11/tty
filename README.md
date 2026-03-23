@@ -40,7 +40,7 @@ Sessions are local shells or SSH connections to remote servers. They survive bro
 ## Quick start
 
 ```bash
-git clone https://github.com/yourusername/tty
+git clone https://github.com/docnavy11/tty
 cd tty
 npm install
 npm run build
