@@ -20,7 +20,12 @@ function sendHistory(tmuxName: string, ws: WebSocket): void {
       `tmux capture-pane -e -p -S -5000 -t ${tmuxName}`,
       { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024, timeout: 10000 }
     )
-    if (ws.readyState === 1 && history.length > 0) ws.send(history)
+    if (ws.readyState === 1 && history.length > 0) {
+      // capture-pane outputs \n but xterm.js needs \r\n — without the \r,
+      // each line starts where the previous ended instead of at column 0.
+      const normalized = Buffer.from(history.toString('binary').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n'), 'binary')
+      ws.send(normalized)
+    }
   } catch { /* tmux session may not exist yet */ }
 }
 
