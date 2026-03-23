@@ -3,6 +3,7 @@ import { ProjectHome, type ProjectWithStatus } from './components/ProjectHome'
 import { ProjectWorkspace } from './components/ProjectWorkspace'
 import { TerminalView } from './components/Terminal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { Login } from './components/Login'
 import { useSettings } from './hooks/useSettings'
 
 interface Session {
@@ -17,22 +18,36 @@ type View =
   | { type: 'terminal'; sessionId: string }
 
 export default function App() {
+  const [authed, setAuthed] = useState<boolean | null>(null) // null = loading
   const [view, setView] = useState<View>({ type: 'home' })
   const [projects, setProjects] = useState<ProjectWithStatus[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [showSettings, setShowSettings] = useState(false)
   const { settings, reload: reloadSettings } = useSettings()
 
+  useEffect(() => {
+    fetch('/api/auth/status')
+      .then(r => r.json())
+      .then(({ authEnabled, authenticated }: { authEnabled: boolean; authenticated: boolean }) => {
+        setAuthed(!authEnabled || authenticated)
+      })
+  }, [])
+
   const refresh = useCallback(async () => {
     const [pRes, sRes] = await Promise.all([
       fetch('/api/projects'),
       fetch('/api/active-sessions'),
     ])
+    if (pRes.status === 401) { setAuthed(false); return }
     setProjects(await pRes.json())
     setSessions(await sRes.json())
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { if (authed) refresh() }, [authed, refresh])
+
+  if (authed === null) return null // loading
+
+  if (!authed) return <Login onLogin={() => setAuthed(true)} />
 
   const ungrouped = sessions.filter(s => !s.config.projectId)
 
