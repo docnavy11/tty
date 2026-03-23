@@ -80,6 +80,28 @@ app.setNotFoundHandler(async (req, reply) => {
 await app.listen({ port: PORT, host: HOST })
 console.log(`Server listening on http://${HOST}:${PORT}`)
 
+// Startup safety checks — warn loudly about dangerous configurations
+const isPublic = HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1'
+const uid = process.getuid?.()
+
+if (isPublic && !AUTH_TOKEN) {
+  console.warn('')
+  console.warn('╔══════════════════════════════════════════════════════════╗')
+  console.warn('║  WARNING: NO PASSWORD SET AND SERVER IS PUBLICLY BOUND   ║')
+  console.warn('║  Anyone who can reach this address has full terminal      ║')
+  console.warn('║  access. Set AUTH_TOKEN and use HTTPS. See the README.   ║')
+  console.warn('╚══════════════════════════════════════════════════════════╝')
+  console.warn('')
+}
+
+if (AUTH_TOKEN && AUTH_TOKEN.length < 12) {
+  console.warn(`⚠️  AUTH_TOKEN is only ${AUTH_TOKEN.length} characters — use a longer password (12+ chars recommended)`)
+}
+
+if (uid === 0) {
+  console.warn('⚠️  Running as root — the file browser exposes the entire filesystem. Run as a dedicated low-privilege user instead.')
+}
+
 const shutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully`)
   sessionManager.shutdownAll()
