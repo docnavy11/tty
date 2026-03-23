@@ -6,7 +6,10 @@ A self-hosted web terminal. Runs persistent tmux sessions accessible from any br
 - Sessions survive browser closes and network drops
 - SSH into remote servers or run local shells
 - File browser with upload/download
+- Copy terminal output with search and ANSI color rendering
+- Session activity indicator (idle / busy / done-unseen)
 - Mobile-friendly with touch scrolling
+- Optional password authentication
 
 ## Requirements
 
@@ -21,7 +24,7 @@ git clone https://github.com/yourname/tty
 cd tty
 npm run install:all
 npm run build
-npm start
+node server/dist/index.js
 ```
 
 Open http://localhost:3000
@@ -69,7 +72,7 @@ npm run install:all && npm run build
 
 # Install files
 sudo mkdir -p /opt/tty
-sudo cp -r server/dist client/dist /opt/tty/
+sudo cp -r server/dist server/node_modules client/dist /opt/tty/
 sudo cp tty.service /etc/systemd/system/tty@.service
 
 # Edit the service file to set AUTH_TOKEN and adjust port if needed
