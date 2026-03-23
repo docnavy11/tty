@@ -40,10 +40,23 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
   const [renameValue, setRenameValue] = useState('')
   const [showFiles, setShowFiles] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [activityMap, setActivityMap] = useState<Record<string, 'busy' | 'idle'>>({})
+
+  const handleActivity = useCallback((id: string, status: 'busy' | 'idle') => {
+    setActivityMap(prev => prev[id] === status ? prev : { ...prev, [id]: status })
+  }, [])
   const panesRef = useRef<HTMLDivElement>(null)
 
   // The "primary" active id (for file browser, tab highlight, etc.)
   const activeId = focusedPane === 'left' ? leftId : rightId
+
+  // Inject pulse animation once
+  useEffect(() => {
+    const style = document.createElement('style')
+    style.textContent = '@keyframes tab-pulse{0%,100%{opacity:1}50%{opacity:0.35}}'
+    document.head.appendChild(style)
+    return () => style.remove()
+  }, [])
 
   // Launch project sessions on mount
   useEffect(() => {
@@ -211,7 +224,11 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
             onClick={() => handleTabClick(s.id)}
             onDoubleClick={() => startRename(s)}
           >
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusDot[s.status] ?? '#555', flexShrink: 0 }} />
+            <span style={{
+              width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+              background: activityMap[s.id] === 'busy' ? '#f1fa8c' : (statusDot[s.status] ?? '#555'),
+              animation: activityMap[s.id] === 'busy' ? 'tab-pulse 1s ease-in-out infinite' : 'none',
+            }} />
             {renamingId === s.id ? (
               <input
                 autoFocus
@@ -315,7 +332,7 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
                 }
                 return (
                   <div key={s.id} style={style} onClick={() => { if (splitActive) setFocusedPane(isLeft ? 'left' : 'right') }}>
-                    <TerminalView sessionId={s.id} visible={visible} showHeader={false} settings={settings} onClose={() => removeTab(s.id)} onError={setError} />
+                    <TerminalView sessionId={s.id} visible={visible} showHeader={false} settings={settings} onClose={() => removeTab(s.id)} onError={setError} onActivity={status => handleActivity(s.id, status)} />
                   </div>
                 )
               })}
