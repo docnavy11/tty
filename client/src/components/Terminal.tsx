@@ -120,13 +120,15 @@ interface Props {
   settings?: AppSettings
   onClose: () => void
   onError: (msg: string) => void
-  onActivity?: (status: 'busy' | 'idle') => void
+  onActivity?: (status: 'busy' | 'done' | 'idle') => void
 }
 
 export function TerminalView({ sessionId, visible = true, showHeader = true, settings, onClose, onError, onActivity }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const termRef = useRef<Terminal | null>(null)
+  const visibleRef = useRef(visible)
+  useEffect(() => { visibleRef.current = visible }, [visible])
 
   // Re-fit and focus when becoming visible (tab switch or initial open)
   useEffect(() => {
@@ -185,7 +187,7 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
     function signalActivity() {
       onActivity?.('busy')
       if (activityTimer) clearTimeout(activityTimer)
-      activityTimer = setTimeout(() => onActivity?.('idle'), 2000)
+      activityTimer = setTimeout(() => onActivity?.(visibleRef.current ? 'idle' : 'done'), 2000)
     }
 
     // Register onData once — always writes to the current wsRef

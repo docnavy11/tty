@@ -40,9 +40,9 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
   const [renameValue, setRenameValue] = useState('')
   const [showFiles, setShowFiles] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activityMap, setActivityMap] = useState<Record<string, 'busy' | 'idle'>>({})
+  const [activityMap, setActivityMap] = useState<Record<string, 'busy' | 'done' | 'idle'>>({})
 
-  const handleActivity = useCallback((id: string, status: 'busy' | 'idle') => {
+  const handleActivity = useCallback((id: string, status: 'busy' | 'done' | 'idle') => {
     setActivityMap(prev => prev[id] === status ? prev : { ...prev, [id]: status })
   }, [])
   const panesRef = useRef<HTMLDivElement>(null)
@@ -152,6 +152,7 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
     } else {
       setRightId(id)
     }
+    setActivityMap(prev => prev[id] === 'done' ? { ...prev, [id]: 'idle' } : prev)
   }
 
   const toggleSplit = () => {
@@ -226,7 +227,7 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
           >
             <span style={{
               width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-              background: activityMap[s.id] === 'busy' ? '#f1fa8c' : (statusDot[s.status] ?? '#555'),
+              background: activityMap[s.id] === 'busy' ? '#f1fa8c' : activityMap[s.id] === 'done' ? '#ffb86c' : (statusDot[s.status] ?? '#555'),
               animation: activityMap[s.id] === 'busy' ? 'tab-pulse 1s ease-in-out infinite' : 'none',
             }} />
             {renamingId === s.id ? (

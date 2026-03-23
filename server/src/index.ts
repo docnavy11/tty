@@ -2,10 +2,12 @@ import Fastify from 'fastify'
 import staticPlugin from '@fastify/static'
 import websocketPlugin from '@fastify/websocket'
 import multipart from '@fastify/multipart'
+import cookie from '@fastify/cookie'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { mkdirSync } from 'fs'
 import { initDb } from './db/database.js'
+import { authRoutes } from './routes/auth.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { terminalRoutes } from './routes/terminal.js'
 import { projectRoutes } from './routes/projects.js'
@@ -20,6 +22,7 @@ const PORT = parseInt(process.env.PORT ?? '3000', 10)
 const HOST = process.env.HOST ?? '0.0.0.0'
 const DATA_DIR = process.env.DATA_DIR ?? join(__dirname, '../../data')
 const CLIENT_DIST = process.env.CLIENT_DIST ?? join(__dirname, '../../client/dist')
+const AUTH_TOKEN = process.env.AUTH_TOKEN ?? ''
 
 mkdirSync(DATA_DIR, { recursive: true })
 
@@ -36,6 +39,7 @@ for (const p of projectManager.listProjects()) {
 
 const app = Fastify({ logger: true })
 
+await app.register(cookie, { secret: AUTH_TOKEN || 'dev-secret-change-me' })
 await app.register(websocketPlugin)
 await app.register(multipart)
 
@@ -44,8 +48,20 @@ await app.register(staticPlugin, {
   prefix: '/',
 })
 
+// Auth guard — runs before every route except the auth endpoints themselves
+if (AUTH_TOKEN) {
+  app.addHook('preHandler', async (req, reply) => {
+    if (req.url.startsWith('/api/auth/')) return
+    const r = req as any
+    const raw = r.cookies?.['tty_auth']
+    const valid = raw ? r.unsignCookie(raw).valid : false
+    if (!valid) reply.code(401).send({ error: 'Unauthorized' })
+  })
+}
+
 app.get('/api/health', async () => ({ ok: true }))
 
+await app.register(authRoutes, { token: AUTH_TOKEN })
 await app.register(sessionRoutes)
 await app.register(terminalRoutes)
 await app.register(projectRoutes)
