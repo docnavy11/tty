@@ -17,8 +17,12 @@ type View =
   | { type: 'workspace'; projectId: string; projectName: string }
   | { type: 'terminal'; sessionId: string }
 
+const DISMISSED_KEY = 'tty_dismissed_warnings'
+
 function useSecurityWarnings(authEnabled: boolean | null) {
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [dismissed, setDismissed] = useState<Set<string>>(
+    () => new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]'))
+  )
   const isLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
   const isSecure = window.location.protocol === 'https:'
 
@@ -29,7 +33,11 @@ function useSecurityWarnings(authEnabled: boolean | null) {
     warnings.push({ id: 'noauth', text: 'No password is set — anyone who can reach this address has full terminal access. Set AUTH_TOKEN and restart.' })
 
   const visible = warnings.filter(w => !dismissed.has(w.id))
-  const dismiss = (id: string) => setDismissed(prev => new Set([...prev, id]))
+  const dismiss = (id: string) => setDismissed(prev => {
+    const next = new Set([...prev, id])
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]))
+    return next
+  })
   return { visible, dismiss }
 }
 
