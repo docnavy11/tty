@@ -1,13 +1,32 @@
 import type { FastifyInstance } from 'fastify'
-import { readdirSync, statSync, readFileSync, writeFileSync, createReadStream, createWriteStream } from 'fs'
-import { join, resolve, basename } from 'path'
+import { readdirSync, statSync, readFileSync, writeFileSync, createReadStream, createWriteStream, realpathSync } from 'fs'
+import { join, resolve, basename, dirname } from 'path'
 import { pipeline } from 'stream/promises'
 
 const HOME = process.env.HOME ?? '/root'
+const REAL_HOME = (() => { try { return realpathSync(HOME) } catch { return HOME } })()
+
+function inHome(real: string) {
+  return real === REAL_HOME || real.startsWith(REAL_HOME + '/')
+}
 
 function safePath(input: string): string {
   const abs = resolve(input.startsWith('/') ? input : join(HOME, input))
   if (!abs.startsWith(HOME)) throw Object.assign(new Error('Access denied'), { statusCode: 400 })
+  // Resolve symlinks to prevent traversal attacks.
+  // For paths that don't exist yet (new files), check the parent directory instead.
+  let real: string
+  try {
+    real = realpathSync(abs)
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') throw Object.assign(new Error('Access denied'), { statusCode: 400 })
+    try {
+      real = realpathSync(dirname(abs))
+    } catch {
+      throw Object.assign(new Error('Access denied'), { statusCode: 400 })
+    }
+  }
+  if (!inHome(real)) throw Object.assign(new Error('Access denied'), { statusCode: 400 })
   return abs
 }
 

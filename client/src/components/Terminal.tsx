@@ -488,6 +488,8 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       el.removeEventListener('contextmenu', onContextMenu)
       wsRef?.close()
       term.dispose()
+      // Clear container so no ghost canvas elements linger if xterm.dispose() misses any
+      if (containerRef.current) containerRef.current.innerHTML = ''
     }
   }, [sessionId])
 

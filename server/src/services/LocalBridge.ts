@@ -18,7 +18,7 @@ function sendHistory(tmuxName: string, ws: WebSocket): void {
   try {
     const history = execSync(
       `tmux capture-pane -e -p -S -5000 -t ${tmuxName}`,
-      { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 }
+      { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024, timeout: 10000 }
     )
     if (ws.readyState === 1 && history.length > 0) ws.send(history)
   } catch { /* tmux session may not exist yet */ }

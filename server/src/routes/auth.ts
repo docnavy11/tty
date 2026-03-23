@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 const COOKIE = 'tty_auth'
 const COOKIE_OPTS = {
   httpOnly: true,
-  sameSite: 'lax' as const,
+  sameSite: 'strict' as const,
   path: '/',
   maxAge: 60 * 60 * 24 * 30, // 30 days
 }

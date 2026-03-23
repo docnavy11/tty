@@ -106,8 +106,76 @@ To set a password, add `AUTH_TOKEN=yourpassword` to the `environment` section of
 
 The `~/.ssh:/root/.ssh:ro` volume gives the container access to your SSH keys for connecting to remote servers.
 
+## Reverse proxy and HTTPS
+
+Always put tty behind a reverse proxy in production. The proxy handles TLS termination; tty listens on localhost only.
+
+Set `HOST=127.0.0.1` in the service file so tty is not reachable directly from the internet:
+
+```
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+```
+
+### Caddy (recommended)
+
+Caddy obtains and renews Let's Encrypt certificates automatically. Install it, then create `/etc/caddy/Caddyfile`:
+
+```
+tty.example.com {
+    reverse_proxy localhost:3000
+}
+```
+
+```bash
+sudo systemctl reload caddy
+```
+
+That's it. Caddy handles HTTPS, HTTP→HTTPS redirects, and cert renewal.
+
+### nginx
+
+```nginx
+server {
+    listen 80;
+    server_name tty.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name tty.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/tty.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tty.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Keep terminal WebSockets alive through idle periods
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+Obtain a certificate with Certbot before enabling the `443` block:
+
+```bash
+sudo certbot certonly --nginx -d tty.example.com
+sudo nginx -s reload
+```
+
 ## Security
 
-- Set `AUTH_TOKEN` and run behind a reverse proxy with HTTPS (nginx, Caddy, etc.)
+- Set `AUTH_TOKEN` and run behind HTTPS (see above)
 - The file browser exposes the home directory of the user running the server — run as a dedicated low-privilege user if needed
 - SSH credentials are stored in the local SQLite database; protect `DATA_DIR`
