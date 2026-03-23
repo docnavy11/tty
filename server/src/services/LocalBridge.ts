@@ -61,9 +61,14 @@ export function createLocal(id: string, tmuxName: string, cols: number, rows: nu
     existing._disposeProc = undefined
     if (existing.ws?.readyState === 1) existing.ws.close(1000, 'stolen')
     existing.ws = ws
+    // Resize BEFORE capturing history so the capture reflects the connecting
+    // client's dimensions, not the previous session's dimensions.
+    // proc.resize() sends SIGWINCH; tmux processes it synchronously before
+    // execSync('tmux capture-pane') runs.
+    existing.proc.resize(cols, rows)
     sendHistory(tmuxName, ws)
     pipe(existing, ws, onSessionEnd)
-    // Bounce resize to force SIGWINCH even when dimensions haven't changed.
+    // Bounce to force a full redraw at the correct size.
     existing.proc.resize(cols, rows + 1)
     existing.proc.resize(cols, rows)
     return
