@@ -61,14 +61,14 @@ export function createLocal(id: string, tmuxName: string, cols: number, rows: nu
     existing._disposeProc = undefined
     if (existing.ws?.readyState === 1) existing.ws.close(1000, 'stolen')
     existing.ws = ws
-    // Resize BEFORE capturing history so the capture reflects the connecting
-    // client's dimensions, not the previous session's dimensions.
-    // proc.resize() sends SIGWINCH; tmux processes it synchronously before
-    // execSync('tmux capture-pane') runs.
-    existing.proc.resize(cols, rows)
+    // Capture history BEFORE resizing. Resizing sends SIGWINCH which triggers
+    // an immediate TUI redraw (e.g. Claude Code). Capturing during a mid-redraw
+    // produces lines from mixed layout states — wrong order, scrambled content.
+    // Wide lines from a larger session will wrap on a narrow client, but that
+    // is readable. Mid-redraw captures are not.
     sendHistory(tmuxName, ws)
     pipe(existing, ws, onSessionEnd)
-    // Bounce to force a full redraw at the correct size.
+    // Bounce resize to force SIGWINCH and a clean redraw at the new size.
     existing.proc.resize(cols, rows + 1)
     existing.proc.resize(cols, rows)
     return
