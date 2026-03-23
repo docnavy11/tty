@@ -2,5 +2,8 @@ node_modules/
 dist/
 data/
 client/dist/
+server/dist/
 *.sqlite
 .env
+init.md
+plan.md

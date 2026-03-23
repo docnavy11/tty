@@ -157,7 +157,6 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       fontSize: settings?.fontSize ?? 14,
       fontFamily: settings?.fontFamily ?? "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme,
-      copyOnSelect: true,
       scrollback: 5000,
     })
 
@@ -189,6 +188,12 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       if (activityTimer) clearTimeout(activityTimer)
       activityTimer = setTimeout(() => onActivity?.(visibleRef.current ? 'idle' : 'done'), 2000)
     }
+
+    // Copy on select (replaces the removed copyOnSelect option in xterm v6)
+    const onSelectionDispose = term.onSelectionChange(() => {
+      const sel = term.getSelection()
+      if (sel) navigator.clipboard?.writeText(sel).catch(() => {})
+    })
 
     // Register onData once — always writes to the current wsRef
     const onDataDispose = term.onData((data) => {
@@ -477,6 +482,7 @@ export function TerminalView({ sessionId, visible = true, showHeader = true, set
       destroyed = true
       clearTimers()
       if (activityTimer) clearTimeout(activityTimer)
+      onSelectionDispose.dispose()
       onDataDispose.dispose()
       fitAddonRef.current = null
       termRef.current = null
