@@ -37,10 +37,10 @@ for (const p of projectManager.listProjects()) {
   }
 }
 
-const app = Fastify({ logger: true })
+const app = Fastify({ logger: { redact: ['req.body.password'] } })
 
 await app.register(cookie, { secret: AUTH_TOKEN || 'dev-secret-change-me' })
-await app.register(websocketPlugin)
+await app.register(websocketPlugin, { options: { maxPayload: 64 * 1024 } })
 await app.register(multipart)
 
 await app.register(staticPlugin, {
@@ -82,6 +82,7 @@ console.log(`Server listening on http://${HOST}:${PORT}`)
 
 const shutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully`)
+  sessionManager.shutdownAll()
   await app.close()
   process.exit(0)
 }

@@ -18,6 +18,7 @@ interface LiveSession extends StoredSession {
 class SessionManager {
   private sessions = new Map<string, StoredSession>()
   private live = new Map<string, LiveSession>()
+  private launching = new Set<string>()
 
   create(config: SessionConfig): string {
     const id = randomUUID()
@@ -198,6 +199,20 @@ class SessionManager {
   }
 
   launchProject(projectId: string): string[] {
+    if (this.launching.has(projectId)) {
+      return Array.from(this.sessions.values())
+        .filter(s => s.config.projectId === projectId)
+        .map(s => s.id)
+    }
+    this.launching.add(projectId)
+    try {
+      return this._launchProject(projectId)
+    } finally {
+      this.launching.delete(projectId)
+    }
+  }
+
+  private _launchProject(projectId: string): string[] {
     const defs = projectManager.listSessionDefs(projectId)
     const existing = Array.from(this.sessions.values()).filter(s => s.config.projectId === projectId)
     const launchedDefIds = new Set(existing.map(s => s.config.projectSessionId))
@@ -264,11 +279,28 @@ class SessionManager {
     this.sessions.delete(id)
     removeSession(id)
   }
+
+  // Called on graceful shutdown: kill PTY processes and close SSH connections.
+  // DB records are kept so local sessions can be recovered on next boot.
+  shutdownAll(): void {
+    for (const id of Array.from(this.sessions.keys())) {
+      const session = this.sessions.get(id)
+      if (session?.config.authType === 'local') {
+        killLocal(id) // kills pty proc + closes ws; DB record untouched
+      }
+      const live = this.live.get(id)
+      if (live) {
+        live.ws?.close()
+        live.conn.end()
+        this.live.delete(id)
+      }
+    }
+  }
 }
 
 function tmuxSessionExists(name: string): boolean {
   try {
-    execSync(`tmux has-session -t ${name}`, { stdio: 'ignore' })
+    execSync(`tmux has-session -t ${name}`, { stdio: 'ignore', timeout: 5000 })
     return true
   } catch {
     return false
