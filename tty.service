@@ -11,10 +11,13 @@ Restart=on-failure
 RestartSec=3
 
 Environment=PORT=3000
-Environment=HOST=0.0.0.0
+# Bind to localhost — put Caddy or nginx in front for HTTPS.
+# Set to 0.0.0.0 only if you have no reverse proxy and accept plain HTTP.
+Environment=HOST=127.0.0.1
 Environment=DATA_DIR=/opt/tty/data
 Environment=CLIENT_DIST=/opt/tty/client/dist
-# AUTH_TOKEN=changeme
+# Uncomment and set a password to enable authentication:
+# Environment=AUTH_TOKEN=changeme
 
 # Give node-pty access to a real TTY
 StandardInput=null

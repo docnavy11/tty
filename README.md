@@ -20,9 +20,9 @@ A self-hosted web terminal. Runs persistent tmux sessions accessible from any br
 ## Quick start
 
 ```bash
-git clone https://github.com/yourname/tty
+git clone https://github.com/yourusername/tty
 cd tty
-npm run install:all
+npm install
 npm run build
 node server/dist/index.js
 ```
@@ -32,7 +32,7 @@ Open http://localhost:3000
 ## Development
 
 ```bash
-npm run install:all
+npm install
 npm run dev
 ```
 
@@ -68,7 +68,7 @@ The service file uses `tty@.service` (a systemd template) so it runs as the user
 
 ```bash
 # Build
-npm run install:all && npm run build
+npm install && npm run build
 
 # Install files
 sudo mkdir -p /opt/tty
@@ -92,7 +92,7 @@ sudo systemctl restart tty@youruser
 ### Updating
 
 ```bash
-git pull && npm run install:all && npm run build
+git pull && npm install && npm run build
 sudo systemctl restart tty@youruser
 ```
 
