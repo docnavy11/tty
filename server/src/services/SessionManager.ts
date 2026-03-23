@@ -188,9 +188,11 @@ class SessionManager {
         if (msg.type === 'input') {
           channel.write(msg.data)
         } else if (msg.type === 'resize') {
-          channel.setWindow(msg.rows, msg.cols, 0, 0)
+          const cols = Math.max(1, Math.min(500, Math.trunc(Number(msg.cols)))) || 80
+          const rows = Math.max(1, Math.min(200, Math.trunc(Number(msg.rows)))) || 24
+          channel.setWindow(rows, cols, 0, 0)
           conn.exec(
-            `tmux resize-window -t ${tmuxName} -x ${msg.cols} -y ${msg.rows}`,
+            `tmux resize-window -t ${tmuxName} -x ${cols} -y ${rows}`,
             (err, ch) => { if (!err) ch.resume() }
           )
         }

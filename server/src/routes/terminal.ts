@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { sessionManager } from '../services/SessionManager.js'
 
+function clampDim(value: unknown, min: number, max: number): number {
+  const n = Math.trunc(Number(value))
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : min
+}
+
 export async function terminalRoutes(app: FastifyInstance) {
   app.get('/ws/terminal', { websocket: true }, (socket, req) => {
     const query = req.query as Record<string, string>
@@ -25,7 +30,9 @@ export async function terminalRoutes(app: FastifyInstance) {
           socket.close(1008, 'first message must be resize')
           return
         }
-        await sessionManager.connect(sessionId, socket, msg.cols, msg.rows)
+        const cols = clampDim(msg.cols, 1, 500)
+        const rows = clampDim(msg.rows, 1, 200)
+        await sessionManager.connect(sessionId, socket, cols, rows)
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         socket.send(JSON.stringify({ type: 'error', message: errMsg }))

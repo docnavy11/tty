@@ -99,7 +99,9 @@ function pipe(session: LocalSession, ws: WebSocket, onSessionEnd?: () => void) {
       if (msg.type === 'input') {
         session.proc.write(msg.data)
       } else if (msg.type === 'resize') {
-        session.proc.resize(msg.cols, msg.rows)
+        const cols = Math.max(1, Math.min(500, Math.trunc(Number(msg.cols)))) || 80
+        const rows = Math.max(1, Math.min(200, Math.trunc(Number(msg.rows)))) || 24
+        session.proc.resize(cols, rows)
       }
       // 'ping' and other types are silently ignored
     } catch { /* ignore malformed messages */ }

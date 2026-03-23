@@ -21,6 +21,7 @@ export async function authRoutes(app: FastifyInstance, { token }: { token: strin
   app.post('/api/auth/login', async (req, reply) => {
     const { password } = req.body as { password?: string }
     if (!token || password !== token) {
+      req.log.warn({ ip: req.ip }, 'auth: failed login attempt')
       reply.code(401).send({ error: 'Invalid password' })
       return
     }
