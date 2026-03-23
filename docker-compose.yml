@@ -5,7 +5,7 @@ services:
       - "3000:3000"
     volumes:
       - ./data:/app/data
-      - ~/.ssh:/root/.ssh:ro
+      - ~/.ssh:/home/tty/.ssh:ro
     environment:
       - PORT=3000
       - HOST=0.0.0.0
