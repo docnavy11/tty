@@ -373,14 +373,12 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
       }
 
       let hasConnected = false
-      const tag = `[term ${sessionId.slice(0, 8)}]`
 
       function connect() {
         if (destroyed) return
         clearTimers()
 
-        console.log(`${tag} connect (hasConnected=${hasConnected})`)
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const protocol = window.location.protocol === 'https:' ? 'wss:'  : 'ws:'
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws/terminal?sessionId=${sessionId}`)
         ws.binaryType = 'arraybuffer'
         wsRef = ws
@@ -389,7 +387,6 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
           reconnectDelay = 1000
           // Tell server to skip history replay if xterm already has content
           // (reconnecting after a WS drop — the terminal buffer is intact)
-          console.log(`${tag} ws open → resize ${term.cols}x${term.rows} noHistory=${hasConnected}`)
           ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows, noHistory: hasConnected }))
           hasConnected = true
           // Keepalive ping every 30s to prevent proxy idle-timeout drops
@@ -401,11 +398,6 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
         ws.onmessage = (e) => {
           if (e.data instanceof ArrayBuffer) {
             const bytes = new Uint8Array(e.data)
-            // Log large writes that could cause visible rescroll
-            if (bytes.length > 200) {
-              const preview = new TextDecoder().decode(bytes.slice(0, 300))
-              console.log(`${tag} ws→term ${bytes.length} bytes:\n${preview}${bytes.length > 300 ? '\n...(truncated)' : ''}`)
-            }
             // Strip mouse tracking sequences so xterm handles mouse locally
             const str = new TextDecoder().decode(bytes)
             const cleaned = str.replace(mouseTrackingRe, '')
@@ -423,7 +415,6 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
         }
 
         ws.onclose = (e) => {
-          console.log(`${tag} ws closed code=${e.code} reason=${e.reason}`)
           clearTimers()
           if (e.code === 4001) {
             // Session ended naturally
@@ -437,7 +428,6 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
             setTimeout(() => onClose(), 1000)
           } else {
             // Network error — reconnect with exponential backoff (max 30s)
-            console.log(`${tag} reconnecting in ${reconnectDelay / 1000}s`)
             term.write(`\r\n\x1b[33m[disconnected — reconnecting in ${reconnectDelay / 1000}s]\x1b[0m\r\n`)
             reconnectTimer = setTimeout(() => {
               reconnectDelay = Math.min(reconnectDelay * 2, 30_000)
@@ -454,10 +444,7 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
       let lastRows = term.rows
       let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
-      const observer = new ResizeObserver((entries) => {
-        // Log container size changes to debug scroll-triggered resizes
-        const cr = entries[0]?.contentRect
-        if (cr) console.log(`${tag} ResizeObserver fired: ${Math.round(cr.width)}x${Math.round(cr.height)}px`)
+      const observer = new ResizeObserver(() => {
         // Debounce: in a grid, one cell resizing can reflow the grid and trigger
         // all other cells' observers, causing a cascade. Batch into one frame.
         if (resizeTimer) clearTimeout(resizeTimer)
@@ -470,7 +457,6 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
           if (!atBottom) term.scrollToLine(savedY)
           // Only notify server if dimensions actually changed — prevents tmux redraw loops
           if (wsRef?.readyState === WebSocket.OPEN && (term.cols !== lastCols || term.rows !== lastRows)) {
-            console.log(`${tag} resize ${lastCols}x${lastRows} → ${term.cols}x${term.rows}`)
             lastCols = term.cols
             lastRows = term.rows
             wsRef.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
