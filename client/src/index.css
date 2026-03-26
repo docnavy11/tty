@@ -8,7 +8,7 @@ html, body, #root {
   height: 100%;
   height: var(--vh, 100%);
   max-width: 100vw;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 body {
@@ -30,4 +30,10 @@ input, select, textarea {
 .xterm-viewport,
 .xterm-screen {
   touch-action: none;
+}
+
+/* Prevent xterm's hidden textarea from triggering ancestor scroll
+   (it tracks cursor position and the browser tries to scroll-into-view) */
+.xterm .xterm-helpers {
+  overflow: hidden;
 }

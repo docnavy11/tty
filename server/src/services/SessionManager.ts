@@ -73,7 +73,7 @@ class SessionManager {
     }
   }
 
-  async connect(id: string, ws: WebSocket, cols: number, rows: number): Promise<void> {
+  async connect(id: string, ws: WebSocket, cols: number, rows: number, noHistory = false): Promise<void> {
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session ${id} not found`)
 
@@ -82,7 +82,7 @@ class SessionManager {
       const updated = { ...session, status: 'connected' as const }
       this.sessions.set(id, updated)
       updateSessionStatus(id, 'connected')
-      createLocal(id, session.tmuxName, cols, rows, ws, () => {
+      createLocal(id, session.tmuxName, cols, rows, ws, noHistory, () => {
         this.sessions.delete(id)
         removeSession(id)
       })

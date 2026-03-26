@@ -32,7 +32,8 @@ export async function terminalRoutes(app: FastifyInstance) {
         }
         const cols = clampDim(msg.cols, 1, 500)
         const rows = clampDim(msg.rows, 1, 200)
-        await sessionManager.connect(sessionId, socket, cols, rows)
+        const noHistory = !!msg.noHistory
+        await sessionManager.connect(sessionId, socket, cols, rows, noHistory)
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         socket.send(JSON.stringify({ type: 'error', message: errMsg }))
