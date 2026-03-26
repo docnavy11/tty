@@ -24,18 +24,11 @@ const activityColor: Record<string, string> = {
 
 export function GridCell({ sessionId, label, focused, activity, settings, onFocus, onMaximize, onClose, onError, onActivity }: GridCellProps) {
   const coreRef = useRef<TerminalCoreHandle>(null)
-  const lastClickRef = useRef(0)
 
   const handleClick = useCallback(() => {
-    const now = Date.now()
-    if (now - lastClickRef.current < 300) {
-      onMaximize()
-    } else {
-      onFocus()
-      coreRef.current?.focus()
-    }
-    lastClickRef.current = now
-  }, [onFocus, onMaximize])
+    onFocus()
+    coreRef.current?.focus()
+  }, [onFocus])
 
   return (
     <div

@@ -82,7 +82,73 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
     })
   }
 
-  const gridCols = Math.ceil(Math.sqrt(sessions.length))
+  const gridCols = sessions.length > 0 ? Math.ceil(Math.sqrt(sessions.length)) : 1
+  const gridRows = sessions.length > 0 ? Math.ceil(sessions.length / gridCols) : 1
+
+  // Resizable grid: track column and row ratios (default to equal)
+  const [colRatios, setColRatios] = useState<number[]>([])
+  const [rowRatios, setRowRatios] = useState<number[]>([])
+  const gridContainerRef = useRef<HTMLDivElement>(null)
+
+  // Reset ratios when session count changes the grid shape
+  useEffect(() => {
+    setColRatios(Array(gridCols).fill(1 / gridCols))
+    setRowRatios(Array(gridRows).fill(1 / gridRows))
+  }, [gridCols, gridRows])
+
+  const onColDividerMouseDown = useCallback((colIdx: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    const container = gridContainerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const startRatios = [...colRatios]
+
+    const onMove = (ev: MouseEvent) => {
+      const x = (ev.clientX - rect.left) / rect.width
+      const leftSum = startRatios.slice(0, colIdx).reduce((a, b) => a + b, 0)
+      const pairTotal = startRatios[colIdx] + startRatios[colIdx + 1]
+      const newLeft = Math.max(0.1, Math.min(pairTotal - 0.1, x - leftSum))
+      setColRatios(prev => {
+        const next = [...prev]
+        next[colIdx] = newLeft
+        next[colIdx + 1] = pairTotal - newLeft
+        return next
+      })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [colRatios])
+
+  const onRowDividerMouseDown = useCallback((rowIdx: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    const container = gridContainerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const startRatios = [...rowRatios]
+
+    const onMove = (ev: MouseEvent) => {
+      const y = (ev.clientY - rect.top) / rect.height
+      const topSum = startRatios.slice(0, rowIdx).reduce((a, b) => a + b, 0)
+      const pairTotal = startRatios[rowIdx] + startRatios[rowIdx + 1]
+      const newTop = Math.max(0.1, Math.min(pairTotal - 0.1, y - topSum))
+      setRowRatios(prev => {
+        const next = [...prev]
+        next[rowIdx] = newTop
+        next[rowIdx + 1] = pairTotal - newTop
+        return next
+      })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [rowRatios])
 
   // Grid keyboard shortcuts: Escape to un-maximize
   useEffect(() => {
@@ -444,38 +510,75 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
                 >+ Add session</button>
               </div>
             ) : (
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-                gridAutoRows: '1fr',
-                gap: 4,
-                padding: 4,
-                height: '100%',
-                boxSizing: 'border-box',
-                overflow: 'hidden',
+              <div ref={gridContainerRef} style={{
+                display: 'flex', flexDirection: 'column',
+                height: '100%', overflow: 'hidden',
               }}>
-                {sessions.map(s => {
-                  const isMaximized = s.id === maximizedId
+                {Array.from({ length: gridRows }, (_, rowIdx) => {
+                  const rowSessions = sessions.slice(rowIdx * gridCols, (rowIdx + 1) * gridCols)
+                  const rowHeight = rowRatios[rowIdx] ?? (1 / gridRows)
                   return (
-                    <div
-                      key={s.id}
-                      style={isMaximized
-                        ? { position: 'fixed', inset: 0, zIndex: 10, background: '#1a1a1a', padding: 0, display: 'flex', flexDirection: 'column' }
-                        : { display: maximizedId ? 'none' : 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }
-                      }
-                    >
-                      <GridCell
-                        sessionId={s.id}
-                        label={s.config.displayName ?? s.config.host}
-                        focused={isMaximized || s.id === gridFocusId}
-                        activity={activityMap[s.id]}
-                        settings={settings}
-                        onFocus={() => setGridFocusId(s.id)}
-                        onMaximize={() => { isMaximized ? setMaximizedId(null) : setMaximizedId(s.id); setGridFocusId(s.id) }}
-                        onClose={() => { if (isMaximized) setMaximizedId(null); removeTab(s.id) }}
-                        onError={msg => setError(msg)}
-                        onActivity={status => handleActivity(s.id, status)}
-                      />
+                    <div key={`row-${rowIdx}`} style={{ display: 'contents' }}>
+                      <div style={{
+                        display: 'flex', flex: `${rowHeight} 0 0`,
+                        overflow: 'hidden', minHeight: 0,
+                      }}>
+                        {rowSessions.map((s, colIdx) => {
+                          const isMaximized = s.id === maximizedId
+                          const colWidth = colRatios[colIdx] ?? (1 / gridCols)
+                          return (
+                            <div key={s.id} style={{ display: 'contents' }}>
+                              <div style={isMaximized
+                                ? { position: 'fixed', inset: 0, zIndex: 10, background: '#1a1a1a', padding: 0, display: 'flex', flexDirection: 'column' }
+                                : { display: maximizedId ? 'none' : 'flex', flex: `${colWidth} 0 0`, flexDirection: 'column', overflow: 'hidden', minHeight: 0, minWidth: 0 }
+                              }>
+                                <GridCell
+                                  sessionId={s.id}
+                                  label={s.config.displayName ?? s.config.host}
+                                  focused={isMaximized || s.id === gridFocusId}
+                                  activity={activityMap[s.id]}
+                                  settings={settings}
+                                  onFocus={() => setGridFocusId(s.id)}
+                                  onMaximize={() => { isMaximized ? setMaximizedId(null) : setMaximizedId(s.id); setGridFocusId(s.id) }}
+                                  onClose={() => { if (isMaximized) setMaximizedId(null); removeTab(s.id) }}
+                                  onError={msg => setError(msg)}
+                                  onActivity={status => handleActivity(s.id, status)}
+                                />
+                              </div>
+                              {/* Column divider */}
+                              {colIdx < rowSessions.length - 1 && !maximizedId && (
+                                <div
+                                  onMouseDown={(e) => onColDividerMouseDown(colIdx, e)}
+                                  onDoubleClick={() => setColRatios(Array(gridCols).fill(1 / gridCols))}
+                                  style={{
+                                    width: 6, flexShrink: 0, cursor: 'col-resize',
+                                    background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = '#50fa7b')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = '#333')}
+                                >
+                                  <div style={{ width: 2, height: 30, borderRadius: 1, background: '#555', pointerEvents: 'none' }} />
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {/* Row divider */}
+                      {rowIdx < gridRows - 1 && !maximizedId && (
+                        <div
+                          onMouseDown={(e) => onRowDividerMouseDown(rowIdx, e)}
+                          onDoubleClick={() => setRowRatios(Array(gridRows).fill(1 / gridRows))}
+                          style={{
+                            height: 6, flexShrink: 0, cursor: 'row-resize',
+                            background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#50fa7b')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#333')}
+                        >
+                          <div style={{ width: 30, height: 2, borderRadius: 1, background: '#555', pointerEvents: 'none' }} />
+                        </div>
+                      )}
                     </div>
                   )
                 })}
