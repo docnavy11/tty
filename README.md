@@ -12,6 +12,7 @@ Most web terminals expose a single shell and call it done. tty is built around t
 
 - **Sessions persist** — tmux keeps everything running when you close the tab or lose your connection. Come back and pick up where you left off.
 - **Organized workspaces** — group sessions into projects (e.g. a "homelab" project with tabs for "claude", "logs", "docker"). Activity indicators show which tabs have new output without you having to click through them.
+- **Grid mode** — on desktop, view all sessions at once in a resizable grid. Drag dividers to resize, click to focus, maximize button to go full-screen.
 - **Works on mobile** — touch scrolling, momentum, readable on small screens.
 - **File browser** — upload and download files without needing scp or sftp.
 - **No cloud, no telemetry** — runs on your own machine. Single password authentication, nothing else required.
