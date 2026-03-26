@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ServerStats } from './ServerStats'
 
 export interface ProjectWithStatus {
   id: string
@@ -10,9 +11,16 @@ export interface ProjectWithStatus {
   totalCount: number
 }
 
+interface SessionInfo {
+  id: string
+  config: { displayName?: string; host: string; authType: string; projectId?: string }
+  status: string
+}
+
 interface Props {
   projects: ProjectWithStatus[]
-  ungroupedSessions: { id: string; config: { displayName?: string; host: string; authType: string }; status: string }[]
+  allSessions: SessionInfo[]
+  ungroupedSessions: SessionInfo[]
   onOpenProject: (id: string, name: string) => void
   onOpenSession: (id: string) => void
   onKillSession: (id: string) => void
@@ -50,7 +58,7 @@ const statusDot: Record<string, string> = {
   connected: '#50fa7b', detached: '#888', connecting: '#f1fa8c', pending: '#555',
 }
 
-export function ProjectHome({ projects, ungroupedSessions, onOpenProject, onOpenSession, onKillSession, onRefresh, onOpenSettings }: Props) {
+export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSession, onKillSession, onRefresh, onOpenSettings }: Props) {
   const [newProjectName, setNewProjectName] = useState('')
   const [showNewProject, setShowNewProject] = useState(false)
   const [quickName, setQuickName] = useState('')
@@ -112,6 +120,7 @@ export function ProjectHome({ projects, ungroupedSessions, onOpenProject, onOpen
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'sticky', top: 0, background: '#1a1a1a', zIndex: 10, paddingBottom: 4, marginBottom: -4 }}>
           <h1 style={{ flex: 1, fontSize: 18, fontWeight: 600, color: '#e0e0e0' }}>WebTerminal</h1>
+          <ServerStats />
           <button onClick={onOpenSettings} style={{ ...btnGhost, padding: '10px 12px' }} title="Settings">⚙</button>
           <button onClick={() => setShowNewProject(v => !v)} style={btnPrimary}>+ Project</button>
         </div>
@@ -186,23 +195,57 @@ export function ProjectHome({ projects, ungroupedSessions, onOpenProject, onOpen
           </section>
         )}
 
-        {/* Ungrouped sessions */}
-        {ungroupedSessions.length > 0 && (
+        {/* All active sessions */}
+        {allSessions.length > 0 && (
           <section style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Sessions</div>
-            {ungroupedSessions.map(s => (
-              <div key={s.id} style={{
-                background: '#111', border: '1px solid #222', borderRadius: 8,
-                padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, minHeight: 52,
-              }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDot[s.status] ?? '#555', flexShrink: 0 }} />
-                <span onClick={() => onOpenSession(s.id)} style={{ flex: 1, color: '#ccc', fontSize: 14, cursor: 'pointer' }}>
-                  {s.config.displayName ?? s.config.host}
-                </span>
-                <span style={{ color: '#555', fontSize: 12, flexShrink: 0 }}>{s.status}</span>
-                <button onClick={() => onKillSession(s.id)} style={{ ...btnGhost, border: 'none', padding: '8px', minHeight: 0, color: '#555' }}>✕</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                Active Sessions ({allSessions.length})
               </div>
-            ))}
+              <div style={{ flex: 1 }} />
+              <span style={{ color: '#444', fontSize: 10 }}>
+                {allSessions.filter(s => s.status === 'connected').length} connected
+                {' / '}
+                {allSessions.filter(s => s.status === 'detached').length} detached
+              </span>
+            </div>
+            {allSessions.map(s => {
+              const projectName = s.config.projectId
+                ? projects.find(p => p.activeSessionIds.includes(s.id))?.name
+                : undefined
+              return (
+                <div key={s.id} style={{
+                  background: '#111', border: '1px solid #222', borderRadius: 8,
+                  padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, minHeight: 44,
+                }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDot[s.status] ?? '#555', flexShrink: 0 }} />
+                  <div
+                    onClick={() => onOpenSession(s.id)}
+                    style={{ flex: 1, cursor: 'pointer', overflow: 'hidden' }}
+                  >
+                    <div style={{ color: '#ccc', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.config.displayName ?? s.config.host}
+                    </div>
+                    {projectName && (
+                      <div style={{ color: '#444', fontSize: 10, marginTop: 1 }}>{projectName}</div>
+                    )}
+                  </div>
+                  <span style={{
+                    fontSize: 9, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
+                    background: s.status === 'connected' ? '#1a2a1a' : s.status === 'detached' ? '#2a2a1a' : '#1a1a2a',
+                    color: statusDot[s.status] ?? '#555',
+                    border: `1px solid ${s.status === 'connected' ? '#2a4a2a' : '#333'}`,
+                  }}>
+                    {s.status}
+                  </span>
+                  <button
+                    onClick={() => onKillSession(s.id)}
+                    title="Kill session"
+                    style={{ ...btnGhost, border: 'none', padding: '6px', minHeight: 0, color: '#555', fontSize: 13 }}
+                  >✕</button>
+                </div>
+              )
+            })}
           </section>
         )}
 

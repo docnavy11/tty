@@ -59,7 +59,9 @@ export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => vo
   session._disposeProc = () => onExit.dispose()
 }
 
-export function createLocal(id: string, tmuxName: string, cols: number, rows: number, ws: WebSocket, noHistory: boolean, onSessionEnd?: () => void): void {
+const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+
+export async function createLocal(id: string, tmuxName: string, cols: number, rows: number, ws: WebSocket, noHistory: boolean, onSessionEnd?: () => void): Promise<void> {
   // Steal existing if alive
   const existing = sessions.get(id)
   if (existing) {
@@ -69,14 +71,16 @@ export function createLocal(id: string, tmuxName: string, cols: number, rows: nu
     if (existing.ws?.readyState === 1) existing.ws.close(1000, 'stolen')
     existing.ws = ws
     // Resize FIRST so tmux reflows content to the client's dimensions.
-    // History captured afterwards will have correct line widths.
     if (cols !== existing.proc.cols || rows !== existing.proc.rows) {
       existing.proc.resize(cols, rows)
+      // Wait for tmux to process SIGWINCH and reflow content.
+      // The resize is synchronous (node-pty) but tmux handles the signal
+      // asynchronously — capturing immediately gets stale layout.
+      await delay(100)
     }
     // Send history only when the client requests it (noHistory=false).
     // On WebSocket reconnect the xterm buffer is still intact, so the client
     // sets noHistory=true to avoid a redundant 5000-line replay ("rescroll").
-    // History is only needed on full page reload / first connect.
     if (existing.hadClient && !noHistory) {
       sendHistory(tmuxName, ws)
     }
