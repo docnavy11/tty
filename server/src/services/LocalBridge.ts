@@ -68,6 +68,11 @@ export function createLocal(id: string, tmuxName: string, cols: number, rows: nu
     existing._disposeProc = undefined
     if (existing.ws?.readyState === 1) existing.ws.close(1000, 'stolen')
     existing.ws = ws
+    // Resize FIRST so tmux reflows content to the client's dimensions.
+    // History captured afterwards will have correct line widths.
+    if (cols !== existing.proc.cols || rows !== existing.proc.rows) {
+      existing.proc.resize(cols, rows)
+    }
     // Send history only when the client requests it (noHistory=false).
     // On WebSocket reconnect the xterm buffer is still intact, so the client
     // sets noHistory=true to avoid a redundant 5000-line replay ("rescroll").
@@ -76,13 +81,7 @@ export function createLocal(id: string, tmuxName: string, cols: number, rows: nu
       sendHistory(tmuxName, ws)
     }
     existing.hadClient = true
-    // Start piping BEFORE resize — the resize triggers a tmux redraw whose
-    // output must reach the client (otherwise the terminal appears blank).
     pipe(existing, ws, onSessionEnd)
-    // Only resize if dimensions actually changed to avoid unnecessary redraws.
-    if (cols !== existing.proc.cols || rows !== existing.proc.rows) {
-      existing.proc.resize(cols, rows)
-    }
     return
   }
 

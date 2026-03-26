@@ -190,6 +190,22 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
       if (visible) term.focus()
       fitAddon.fit()
 
+      // Block mouse tracking escape sequences at the parser level.
+      // tmux enables mouse tracking (e.g. \e[?1000h) which makes xterm
+      // forward all mouse events to the PTY. By intercepting the DEC
+      // private mode set/reset sequences, we keep mouse handling local.
+      const mouseTrackingModes = new Set([1000, 1002, 1003, 1004, 1006, 1015, 1016])
+      const blockMouseTracking = (params: { length: number; forEach: (cb: (v: number | number[]) => void) => void }) => {
+        let dominated = false
+        params.forEach((p) => {
+          const v = Array.isArray(p) ? p[0] : p
+          if (mouseTrackingModes.has(v)) dominated = true
+        })
+        return dominated  // true = handled (swallowed), false = let xterm process
+      }
+      const disposeH = term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, blockMouseTracking)
+      const disposeL = term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, blockMouseTracking)
+
       // --- connection state ---
       let destroyed = false
       let wsRef: WebSocket | null = null
@@ -397,11 +413,7 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
 
         ws.onmessage = (e) => {
           if (e.data instanceof ArrayBuffer) {
-            const bytes = new Uint8Array(e.data)
-            // Strip mouse tracking sequences so xterm handles mouse locally
-            const str = new TextDecoder().decode(bytes)
-            const cleaned = str.replace(mouseTrackingRe, '')
-            if (cleaned.length > 0) term.write(cleaned)
+            term.write(new Uint8Array(e.data))
             signalActivity()
           } else {
             try {
@@ -467,12 +479,7 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
 
       const el = containerRef.current!
 
-      // Strip mouse tracking escape sequences from the data stream so xterm
-      // never enters mouse tracking mode. Without this, tmux enables mouse
-      // tracking and xterm forwards all mouse events to the PTY — causing
-      // server roundtrips for selection, clicks, and scrolling.
-      // Regex matches: \e[?{1000,1002,1003,1004,1006,1015,1016}{h,l}
-      const mouseTrackingRe = /\x1b\[\?(?:1000|1002|1003|1004|1006|1015|1016)[hl]/g
+      // (Mouse tracking is blocked at the parser level above — no data stream modification needed)
 
       // Mouse wheel scrolling — intercept before xterm forwards to tmux.
       // Without this, wheel events go through the PTY to tmux, which enters
@@ -603,6 +610,8 @@ export const TerminalCore = forwardRef<TerminalCoreHandle, TerminalCoreProps>(
         if (resizeTimer) clearTimeout(resizeTimer)
         onSelectionDispose.dispose()
         onDataDispose.dispose()
+        disposeH.dispose()
+        disposeL.dispose()
         fitAddonRef.current = null
         termRef.current = null
         observer.disconnect()
