@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { TerminalView } from './Terminal'
 import { GridCell } from './GridCell'
 import { FileBrowser } from './FileBrowser'
+import { ServerStats } from './ServerStats'
 import type { AppSettings } from '../hooks/useSettings'
 
 interface Session {
@@ -428,6 +429,7 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
           }}
         >Files</button>
 
+        <ServerStats />
         <button onClick={onOpenSettings} title="Settings" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 15, padding: '0 12px', height: '100%' }}>⚙</button>
       </div>
 

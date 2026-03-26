@@ -13,6 +13,7 @@ import { terminalRoutes } from './routes/terminal.js'
 import { projectRoutes } from './routes/projects.js'
 import { settingsRoutes } from './routes/settings.js'
 import { fileRoutes } from './routes/files.js'
+import { statsRoutes } from './routes/stats.js'
 import { sessionManager } from './services/SessionManager.js'
 import { projectManager } from './services/ProjectManager.js'
 
@@ -67,6 +68,7 @@ await app.register(terminalRoutes)
 await app.register(projectRoutes)
 await app.register(settingsRoutes)
 await app.register(fileRoutes)
+await app.register(statsRoutes)
 
 // SPA fallback
 app.setNotFoundHandler(async (req, reply) => {

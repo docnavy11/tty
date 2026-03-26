@@ -136,6 +136,7 @@ export default function App() {
       {warningBanner}
       <ProjectHome
         projects={projects}
+        allSessions={sessions}
         ungroupedSessions={ungrouped}
         onOpenProject={(id, name) => setView({ type: 'workspace', projectId: id, projectName: name })}
         onOpenSession={(id) => setView({ type: 'terminal', sessionId: id })}
