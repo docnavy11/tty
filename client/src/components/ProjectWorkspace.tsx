@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { TerminalView } from './Terminal'
+import { GridCell } from './GridCell'
 import { FileBrowser } from './FileBrowser'
 import type { AppSettings } from '../hooks/useSettings'
 
@@ -27,6 +28,8 @@ const inputSm: React.CSSProperties = {
   padding: '3px 8px', outline: 'none',
 }
 
+type LayoutMode = 'tabs' | 'grid'
+
 export function ProjectWorkspace({ projectId, projectName, settings, onBack, onOpenSettings }: Props) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [leftId, setLeftId] = useState<string | null>(null)
@@ -34,6 +37,10 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
   const [focusedPane, setFocusedPane] = useState<'left' | 'right'>('left')
   const [splitActive, setSplitActive] = useState(false)
   const [splitRatio, setSplitRatio] = useState(0.5)
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => (localStorage.getItem('tty_layout_mode') as LayoutMode) || 'tabs')
+  const [gridFocusId, setGridFocusId] = useState<string | null>(null)
+  const [maximizedId, setMaximizedId] = useState<string | null>(null)
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
   const [showInput, setShowInput] = useState(false)
   const [newName, setNewName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -48,7 +55,47 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
   const panesRef = useRef<HTMLDivElement>(null)
 
   // The "primary" active id (for file browser, tab highlight, etc.)
-  const activeId = focusedPane === 'left' ? leftId : rightId
+  const activeId = layoutMode === 'grid' ? gridFocusId : (focusedPane === 'left' ? leftId : rightId)
+
+  // Responsive: track desktop breakpoint, auto-switch to tabs if too narrow
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const handler = (e: MediaQueryListEvent) => {
+      setIsDesktop(e.matches)
+      if (!e.matches) setLayoutMode('tabs')
+    }
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
+  // Persist layout preference
+  useEffect(() => { localStorage.setItem('tty_layout_mode', layoutMode) }, [layoutMode])
+
+  const toggleLayoutMode = () => {
+    setLayoutMode(prev => {
+      const next = prev === 'tabs' ? 'grid' : 'tabs'
+      if (next === 'grid') {
+        setSplitActive(false)
+        setGridFocusId(leftId)
+      }
+      return next
+    })
+  }
+
+  const gridCols = Math.ceil(Math.sqrt(sessions.length))
+
+  // Grid keyboard shortcuts: Escape to un-maximize
+  useEffect(() => {
+    if (layoutMode !== 'grid') return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && maximizedId) {
+        setMaximizedId(null)
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [layoutMode, maximizedId])
 
   // Inject pulse animation once
   useEffect(() => {
@@ -272,18 +319,35 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
 
         <div style={{ flex: 1 }} />
 
-        {/* Split toggle */}
-        <button
-          onClick={toggleSplit}
-          title={splitActive ? 'Close split' : 'Split pane'}
-          style={{
-            background: splitActive ? '#1a2a2a' : 'none',
-            border: splitActive ? '1px solid #2a4a4a' : '1px solid transparent',
-            borderRadius: 3, color: splitActive ? '#8be9fd' : '#666',
-            cursor: 'pointer', fontSize: 13, padding: '0 10px', height: 28,
-            fontFamily: 'inherit',
-          }}
-        >⊟</button>
+        {/* Split toggle — hidden in grid mode */}
+        {layoutMode === 'tabs' && (
+          <button
+            onClick={toggleSplit}
+            title={splitActive ? 'Close split' : 'Split pane'}
+            style={{
+              background: splitActive ? '#1a2a2a' : 'none',
+              border: splitActive ? '1px solid #2a4a4a' : '1px solid transparent',
+              borderRadius: 3, color: splitActive ? '#8be9fd' : '#666',
+              cursor: 'pointer', fontSize: 13, padding: '0 10px', height: 28,
+              fontFamily: 'inherit',
+            }}
+          >&#x229F;</button>
+        )}
+
+        {/* Grid toggle — desktop only */}
+        {isDesktop && (
+          <button
+            onClick={toggleLayoutMode}
+            title={layoutMode === 'grid' ? 'Switch to tabs' : 'Switch to grid'}
+            style={{
+              background: layoutMode === 'grid' ? '#1a2a1a' : 'none',
+              border: layoutMode === 'grid' ? '1px solid #2a4a2a' : '1px solid transparent',
+              borderRadius: 3, color: layoutMode === 'grid' ? '#50fa7b' : '#666',
+              cursor: 'pointer', fontSize: 13, padding: '0 10px', height: 28,
+              fontFamily: 'inherit', marginLeft: 4,
+            }}
+          >&#x2395;</button>
+        )}
 
         {/* File browser toggle */}
         <button
@@ -304,67 +368,121 @@ export function ProjectWorkspace({ projectId, projectName, settings, onBack, onO
       {/* Main area */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-        {/* Terminal panes */}
-        <div ref={panesRef} style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-          {sessions.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 16, color: '#444' }}>
-              <span style={{ fontSize: 13 }}>No sessions in this project.</span>
-              <button
-                onClick={() => setShowInput(true)}
-                style={{ background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 4, color: '#50fa7b', fontFamily: 'inherit', fontSize: 13, padding: '7px 16px', cursor: 'pointer' }}
-              >+ Add session</button>
-            </div>
-          ) : (
-            <>
-              {/* All terminals in one layer — each positioned to its pane slot */}
-              {sessions.map(s => {
-                const isLeft = s.id === leftId
-                const isRight = splitActive && s.id === rightId && s.id !== leftId
-                const visible = isLeft || isRight
-                let style: React.CSSProperties
-                if (!splitActive) {
-                  style = { position: 'absolute', inset: 0, visibility: isLeft ? 'visible' : 'hidden', zIndex: isLeft ? 1 : 0 }
-                } else if (isLeft) {
-                  style = { position: 'absolute', top: 0, bottom: 0, left: 0, width: `calc(${splitRatio * 100}% - 2px)`, visibility: 'visible', zIndex: 1 }
-                } else if (isRight) {
-                  style = { position: 'absolute', top: 0, bottom: 0, right: 0, width: `${(1 - splitRatio) * 100}%`, visibility: 'visible', zIndex: 1 }
-                } else {
-                  style = { position: 'absolute', inset: 0, visibility: 'hidden', zIndex: 0 }
-                }
-                return (
-                  <div key={s.id} style={style} onClick={() => { if (splitActive) setFocusedPane(isLeft ? 'left' : 'right') }}>
-                    <TerminalView sessionId={s.id} visible={visible} showHeader={false} settings={settings} onClose={() => removeTab(s.id)} onError={setError} onActivity={status => handleActivity(s.id, status)} />
+        {/* Terminal panes — tabs mode */}
+        {layoutMode === 'tabs' && (
+          <div ref={panesRef} style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+            {sessions.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 16, color: '#444' }}>
+                <span style={{ fontSize: 13 }}>No sessions in this project.</span>
+                <button
+                  onClick={() => setShowInput(true)}
+                  style={{ background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 4, color: '#50fa7b', fontFamily: 'inherit', fontSize: 13, padding: '7px 16px', cursor: 'pointer' }}
+                >+ Add session</button>
+              </div>
+            ) : (
+              <>
+                {/* All terminals in one layer — each positioned to its pane slot */}
+                {sessions.map(s => {
+                  const isLeft = s.id === leftId
+                  const isRight = splitActive && s.id === rightId && s.id !== leftId
+                  const visible = isLeft || isRight
+                  let style: React.CSSProperties
+                  if (!splitActive) {
+                    style = { position: 'absolute', inset: 0, visibility: isLeft ? 'visible' : 'hidden', zIndex: isLeft ? 1 : 0 }
+                  } else if (isLeft) {
+                    style = { position: 'absolute', top: 0, bottom: 0, left: 0, width: `calc(${splitRatio * 100}% - 2px)`, visibility: 'visible', zIndex: 1 }
+                  } else if (isRight) {
+                    style = { position: 'absolute', top: 0, bottom: 0, right: 0, width: `${(1 - splitRatio) * 100}%`, visibility: 'visible', zIndex: 1 }
+                  } else {
+                    style = { position: 'absolute', inset: 0, visibility: 'hidden', zIndex: 0 }
+                  }
+                  return (
+                    <div key={s.id} style={style} onClick={() => { if (splitActive) setFocusedPane(isLeft ? 'left' : 'right') }}>
+                      <TerminalView sessionId={s.id} visible={visible} showHeader={false} settings={settings} onClose={() => removeTab(s.id)} onError={setError} onActivity={status => handleActivity(s.id, status)} />
+                    </div>
+                  )
+                })}
+
+                {/* Divider */}
+                {splitActive && (
+                  <div
+                    onMouseDown={onDividerMouseDown}
+                    style={{
+                      position: 'absolute', top: 0, bottom: 0, zIndex: 20,
+                      left: `calc(${splitRatio * 100}% - 3px)`, width: 6,
+                      background: '#444', cursor: 'col-resize',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#8be9fd')}
+                    onMouseLeave={e => (e.currentTarget.style.background = '#444')}
+                  >
+                    <div style={{ width: 2, height: 40, borderRadius: 1, background: '#666', pointerEvents: 'none' }} />
                   </div>
-                )
-              })}
+                )}
 
-              {/* Divider */}
-              {splitActive && (
-                <div
-                  onMouseDown={onDividerMouseDown}
-                  style={{
-                    position: 'absolute', top: 0, bottom: 0, zIndex: 20,
-                    left: `calc(${splitRatio * 100}% - 3px)`, width: 6,
-                    background: '#444', cursor: 'col-resize',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#8be9fd')}
-                  onMouseLeave={e => (e.currentTarget.style.background = '#444')}
-                >
-                  <div style={{ width: 2, height: 40, borderRadius: 1, background: '#666', pointerEvents: 'none' }} />
-                </div>
-              )}
+                {/* Focused-pane indicator: 2px colored top bar */}
+                {splitActive && (
+                  <>
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: `calc(${splitRatio * 100}% - 2px)`, height: 2, zIndex: 19, pointerEvents: 'none', background: focusedPane === 'left' ? '#50fa7b' : '#333' }} />
+                    <div style={{ position: 'absolute', top: 0, right: 0, width: `${(1 - splitRatio) * 100}%`, height: 2, zIndex: 19, pointerEvents: 'none', background: focusedPane === 'right' ? '#8be9fd' : '#333' }} />
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
-              {/* Focused-pane indicator: 2px colored top bar */}
-              {splitActive && (
-                <>
-                  <div style={{ position: 'absolute', top: 0, left: 0, width: `calc(${splitRatio * 100}% - 2px)`, height: 2, zIndex: 19, pointerEvents: 'none', background: focusedPane === 'left' ? '#50fa7b' : '#333' }} />
-                  <div style={{ position: 'absolute', top: 0, right: 0, width: `${(1 - splitRatio) * 100}%`, height: 2, zIndex: 19, pointerEvents: 'none', background: focusedPane === 'right' ? '#8be9fd' : '#333' }} />
-                </>
-              )}
-            </>
-          )}
-        </div>
+        {/* Terminal panes — grid mode */}
+        {layoutMode === 'grid' && (
+          <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+            {sessions.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16, color: '#444' }}>
+                <span style={{ fontSize: 13 }}>No sessions in this project.</span>
+                <button
+                  onClick={() => setShowInput(true)}
+                  style={{ background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 4, color: '#50fa7b', fontFamily: 'inherit', fontSize: 13, padding: '7px 16px', cursor: 'pointer' }}
+                >+ Add session</button>
+              </div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+                gridAutoRows: '1fr',
+                gap: 4,
+                padding: 4,
+                height: '100%',
+                boxSizing: 'border-box',
+                overflow: 'hidden',
+              }}>
+                {sessions.map(s => {
+                  const isMaximized = s.id === maximizedId
+                  return (
+                    <div
+                      key={s.id}
+                      style={isMaximized
+                        ? { position: 'fixed', inset: 0, zIndex: 10, background: '#1a1a1a', padding: 0, display: 'flex', flexDirection: 'column' }
+                        : { display: maximizedId ? 'none' : 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }
+                      }
+                    >
+                      <GridCell
+                        sessionId={s.id}
+                        label={s.config.displayName ?? s.config.host}
+                        focused={isMaximized || s.id === gridFocusId}
+                        activity={activityMap[s.id]}
+                        settings={settings}
+                        onFocus={() => setGridFocusId(s.id)}
+                        onMaximize={() => { isMaximized ? setMaximizedId(null) : setMaximizedId(s.id); setGridFocusId(s.id) }}
+                        onClose={() => { if (isMaximized) setMaximizedId(null); removeTab(s.id) }}
+                        onError={msg => setError(msg)}
+                        onActivity={status => handleActivity(s.id, status)}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {showFiles && <FileBrowser sessionId={activeId} onClose={() => setShowFiles(false)} />}
       </div>
