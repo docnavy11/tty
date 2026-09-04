@@ -16,6 +16,11 @@ interface GridCellProps {
   onActivity: (status: 'busy' | 'done' | 'idle') => void
 }
 
+const cellBtnStyle: React.CSSProperties = {
+  background: 'none', border: 'none', color: '#666', cursor: 'pointer',
+  fontSize: 11, padding: '0 4px', lineHeight: 1,
+}
+
 const activityColor: Record<string, string> = {
   busy: '#f1fa8c',
   done: '#ffb86c',
@@ -63,12 +68,12 @@ export function GridCell({ sessionId, label, focused, activity, settings, onFocu
           <button
             onClick={(e) => { e.stopPropagation(); onMaximize() }}
             title="Maximize"
-            style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 11, padding: '0 4px', lineHeight: 1 }}
+            style={cellBtnStyle}
           >&#x26F6;</button>
           <button
             onClick={(e) => { e.stopPropagation(); onClose() }}
             title="Close"
-            style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 11, padding: '0 4px', lineHeight: 1 }}
+            style={cellBtnStyle}
           >&#x2715;</button>
         </div>
       </div>

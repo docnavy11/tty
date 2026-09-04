@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { cpus, totalmem, freemem, loadavg, uptime } from 'os'
 import { execSync } from 'child_process'
+import { readFileSync } from 'fs'
 
 let prevCpuTimes: { idle: number; total: number } | null = null
 
@@ -26,6 +27,46 @@ interface TmuxSession {
   windows: number
   created: number
   attached: boolean
+  pid: number
+  cpu: number   // % across process tree
+  mem: number   // RSS in bytes across process tree
+}
+
+function getDescendantPids(pid: number): number[] {
+  try {
+    const out = execSync(`pgrep -P ${pid}`, { encoding: 'utf8', timeout: 3000 }).trim()
+    if (!out) return []
+    const children = out.split('\n').map(Number).filter(n => n > 0)
+    const all = [...children]
+    for (const child of children) {
+      all.push(...getDescendantPids(child))
+    }
+    return all
+  } catch {
+    return []
+  }
+}
+
+function getProcessStats(pids: number[]): { cpu: number; mem: number } {
+  if (pids.length === 0) return { cpu: 0, mem: 0 }
+  try {
+    const pidList = pids.join(',')
+    const out = execSync(`ps -p ${pidList} -o pcpu=,rss= --no-headers 2>/dev/null`, {
+      encoding: 'utf8', timeout: 3000,
+    }).trim()
+    if (!out) return { cpu: 0, mem: 0 }
+    let cpu = 0, mem = 0
+    for (const line of out.split('\n')) {
+      const parts = line.trim().split(/\s+/)
+      if (parts.length >= 2) {
+        cpu += parseFloat(parts[0]) || 0
+        mem += (parseInt(parts[1], 10) || 0) * 1024 // RSS is in KB, convert to bytes
+      }
+    }
+    return { cpu: Math.round(cpu * 10) / 10, mem }
+  } catch {
+    return { cpu: 0, mem: 0 }
+  }
 }
 
 function listTmuxSessions(): TmuxSession[] {
@@ -37,11 +78,25 @@ function listTmuxSessions(): TmuxSession[] {
     if (!out) return []
     return out.split('\n').map(line => {
       const [name, windows, created, attached] = line.split('\t')
+      // Get the pane PID for this session's first pane
+      let pid = 0
+      try {
+        pid = parseInt(
+          execSync(`tmux list-panes -t ${name} -F "#{pane_pid}"`, { encoding: 'utf8', timeout: 3000 }).trim().split('\n')[0],
+          10
+        ) || 0
+      } catch { /* ignore */ }
+      // Get process tree stats
+      const allPids = pid > 0 ? [pid, ...getDescendantPids(pid)] : []
+      const stats = getProcessStats(allPids)
       return {
         name,
         windows: parseInt(windows, 10) || 1,
         created: parseInt(created, 10) || 0,
         attached: attached === '1',
+        pid,
+        cpu: stats.cpu,
+        mem: stats.mem,
       }
     })
   } catch {
@@ -49,12 +104,32 @@ function listTmuxSessions(): TmuxSession[] {
   }
 }
 
+// Tmux session list is expensive (execSync per session). Cache it and only
+// compute when explicitly requested via ?tmux=1 (the dashboard page).
+let cachedTmux: TmuxSession[] = []
+let tmuxCacheTime = 0
+const TMUX_CACHE_TTL = 5000
+
 export async function statsRoutes(app: FastifyInstance) {
-  app.get('/api/stats', async () => {
+  // Lightweight stats — only os module, no shell commands. Safe to poll frequently.
+  app.get('/api/stats', async (req) => {
     const totalMem = totalmem()
     const freeMem = freemem()
     const usedMem = totalMem - freeMem
-    const tmuxSessions = listTmuxSessions()
+    const query = req.query as Record<string, string>
+    const wantTmux = query.tmux === '1'
+
+    // Only run expensive tmux/process lookups when dashboard requests it
+    let tmux: TmuxSession[] | undefined
+    if (wantTmux) {
+      const now = Date.now()
+      if (now - tmuxCacheTime > TMUX_CACHE_TTL) {
+        cachedTmux = listTmuxSessions()
+        tmuxCacheTime = now
+      }
+      tmux = cachedTmux
+    }
+
     return {
       cpu: getCpuPercent(),
       mem: Math.round((usedMem / totalMem) * 100),
@@ -62,7 +137,7 @@ export async function statsRoutes(app: FastifyInstance) {
       memTotal: totalMem,
       load: loadavg(),
       uptime: Math.floor(uptime()),
-      tmux: tmuxSessions,
+      ...(tmux ? { tmux } : {}),
     }
   })
 

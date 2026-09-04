@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     reconnect_attempts      INTEGER DEFAULT 0,
     max_reconnect_attempts  INTEGER DEFAULT 60,
     created_at              DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_activity           DATETIME DEFAULT CURRENT_TIMESTAMP
+    last_activity           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    missing_probes          INTEGER DEFAULT 0,
+    orphaned_at             DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS snippets (
@@ -54,3 +56,8 @@ CREATE TABLE IF NOT EXISTS settings (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL
 );
+
+-- Resilience columns (also added by migrate() for pre-existing databases).
+-- missing_probes: consecutive boot/exit probes that failed to find the tmux
+-- session. A row is only ever marked 'orphaned', never deleted, so a transient
+-- probe failure can no longer erase session history.

@@ -2,6 +2,8 @@ import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import type { WebSocket } from 'ws'
 import { execSync } from 'child_process'
+import { createLog } from './wsDebugLog.js'
+import type { WsDebugLog } from './wsDebugLog.js'
 
 export interface LocalSession {
   id: string
@@ -9,35 +11,66 @@ export interface LocalSession {
   proc: IPty
   ws: WebSocket | null
   status: 'connected' | 'detached'
-  hadClient: boolean           // true after first WS connection — used to gate history replay
-  _disposeProc?: () => void    // current onData + onExit disposables
+  hadClient: boolean
+  _disposeProc?: () => void
 }
 
 const sessions = new Map<string, LocalSession>()
 
-function sendHistory(tmuxName: string, ws: WebSocket): void {
+// The server's own configuration must not leak into the terminals it spawns.
+// pty.spawn used to receive process.env verbatim, so every pane inherited
+// DATA_DIR, TTY_DEBUG, PORT and (once set) AUTH_TOKEN — the web terminal's
+// password readable by anything running in any pane. It also caused real
+// confusion: a shell in a pane sees tty's DATA_DIR as its own.
+//
+// This is a denylist rather than an allowlist on purpose. These panes are
+// general-purpose shells and an allowlist would silently break whatever the
+// user relies on; the harm here is specifically tty's own config, so that is
+// what gets removed. Extend with TTY_ENV_BLOCK=FOO,BAR.
+const BLOCKED_ENV = new Set(
+  [
+    'PORT', 'HOST', 'DATA_DIR', 'CLIENT_DIST', 'AUTH_TOKEN',
+    ...(process.env.TTY_ENV_BLOCK ?? '').split(',').map(k => k.trim()).filter(Boolean),
+  ].map(k => k.toUpperCase())
+)
+
+function terminalEnv(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue
+    // Drop the server's config plus every TTY_* knob (TTY_DEBUG, thresholds...).
+    if (BLOCKED_ENV.has(key.toUpperCase()) || key.toUpperCase().startsWith('TTY_')) continue
+    out[key] = value
+  }
+  return out
+}
+
+const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+
+function sendHistory(tmuxName: string, ws: WebSocket, log: WsDebugLog): void {
   try {
     const history = execSync(
       `tmux capture-pane -e -p -S -5000 -t ${tmuxName}`,
       { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024, timeout: 10000 }
     )
     if (ws.readyState === 1 && history.length > 0) {
-      // capture-pane outputs \n but xterm.js needs \r\n — without the \r,
-      // each line starts where the previous ended instead of at column 0.
       const normalized = Buffer.from(
         history.toString('binary')
           .replace(/\r\n/g, '\n')
-          .replace(/^\n+/, '')   // strip leading blank lines (tmux -S padding when scrollback < 5000)
+          .replace(/^\n+/, '')
           .replace(/\n/g, '\r\n'),
         'binary'
       )
+      log.data('HISTORY', normalized)
       ws.send(normalized)
     }
-  } catch { /* tmux session may not exist yet */ }
+  } catch (err) {
+    log.event('HISTORY_FAIL', { err: err instanceof Error ? err.message : String(err) })
+  }
 }
 
 // Spawn a local session headlessly (no WS yet). Used by autostart.
-export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => void, cols = 220, rows = 50): void {
+export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => void, cols = 80, rows = 24): void {
   if (sessions.has(id)) return
 
   const proc = pty.spawn('tmux', ['new-session', '-A', '-s', tmuxName, '-x', String(cols), '-y', String(rows)], {
@@ -45,7 +78,7 @@ export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => vo
     cols,
     rows,
     cwd: process.env.HOME ?? '/',
-    env: process.env as Record<string, string>,
+    env: terminalEnv(),
   })
 
   const session: LocalSession = { id, tmuxName, proc, ws: null, status: 'detached', hadClient: false }
@@ -59,67 +92,67 @@ export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => vo
   session._disposeProc = () => onExit.dispose()
 }
 
-const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
-
 export async function createLocal(id: string, tmuxName: string, cols: number, rows: number, ws: WebSocket, noHistory: boolean, onSessionEnd?: () => void): Promise<void> {
-  // Steal existing if alive
+  const log = createLog(id)
   const existing = sessions.get(id)
   if (existing) {
-    // Explicitly dispose previous proc listeners before registering new ones
+    log.event('CONNECT', { branch: 'steal', cols, rows, noHistory, hadClient: existing.hadClient, ptyCols: existing.proc.cols, ptyRows: existing.proc.rows })
     existing._disposeProc?.()
     existing._disposeProc = undefined
     if (existing.ws?.readyState === 1) existing.ws.close(1000, 'stolen')
     existing.ws = ws
-    // Resize FIRST so tmux reflows content to the client's dimensions.
+
     if (cols !== existing.proc.cols || rows !== existing.proc.rows) {
+      log.event('RESIZE_AT_CONNECT', { cols, rows })
       existing.proc.resize(cols, rows)
-      // Wait for tmux to process SIGWINCH and reflow content.
-      // The resize is synchronous (node-pty) but tmux handles the signal
-      // asynchronously — capturing immediately gets stale layout.
       await delay(100)
     }
-    // Send history only when the client requests it (noHistory=false).
-    // On WebSocket reconnect the xterm buffer is still intact, so the client
-    // sets noHistory=true to avoid a redundant 5000-line replay ("rescroll").
+
     if (existing.hadClient && !noHistory) {
-      sendHistory(tmuxName, ws)
+      log.event('HISTORY_SEND')
+      sendHistory(tmuxName, ws, log)
+    } else {
+      log.event('HISTORY_SKIP', { reason: !existing.hadClient ? 'no-prior-client' : 'noHistory-flag' })
     }
     existing.hadClient = true
-    pipe(existing, ws, onSessionEnd)
+
+    pipe(existing, ws, onSessionEnd, log)
     return
   }
 
+  log.event('CONNECT', { branch: 'spawn', cols, rows, noHistory })
   const proc = pty.spawn('tmux', ['new-session', '-A', '-s', tmuxName, '-x', String(cols), '-y', String(rows)], {
     name: 'xterm-256color',
     cols,
     rows,
     cwd: process.env.HOME ?? '/',
-    env: process.env as Record<string, string>,
+    env: terminalEnv(),
   })
 
   const session: LocalSession = { id, tmuxName, proc, ws, status: 'connected', hadClient: true }
   sessions.set(id, session)
 
-  pipe(session, ws, onSessionEnd)
+  pipe(session, ws, onSessionEnd, log)
 }
 
-function pipe(session: LocalSession, ws: WebSocket, onSessionEnd?: () => void) {
+function pipe(session: LocalSession, ws: WebSocket, onSessionEnd: (() => void) | undefined, log: WsDebugLog) {
   const onData = session.proc.onData((data) => {
-    if (ws.readyState === 1) ws.send(Buffer.from(data))
+    if (ws.readyState === 1) {
+      const buf = Buffer.from(data)
+      log.data('PTY', buf)
+      ws.send(buf)
+    }
   })
 
   const onExit = session.proc.onExit(() => {
+    log.event('PTY_EXIT')
     sessions.delete(session.id)
-    // 4001 = session ended naturally — client uses this to navigate back
     if (ws.readyState === 1) ws.close(4001, 'session ended')
     onSessionEnd?.()
   })
 
   session._disposeProc = () => { onData.dispose(); onExit.dispose() }
 
-  // Debounce resize on the server side to coalesce rapid resize messages.
-  // Each resize triggers SIGWINCH → tmux redraws the full screen. Without
-  // debouncing, rapid resizes from grid layout cause repeated redraws.
   let resizeTimer: ReturnType<typeof setTimeout> | null = null
   let pendingCols = 0
   let pendingRows = 0
@@ -136,21 +169,27 @@ function pipe(session: LocalSession, ws: WebSocket, onSessionEnd?: () => void) {
         resizeTimer = setTimeout(() => {
           resizeTimer = null
           if (pendingCols !== session.proc.cols || pendingRows !== session.proc.rows) {
+            log.event('RESIZE_APPLY', { cols: pendingCols, rows: pendingRows, prevCols: session.proc.cols, prevRows: session.proc.rows })
             session.proc.resize(pendingCols, pendingRows)
+          } else {
+            log.event('RESIZE_NOOP', { cols: pendingCols, rows: pendingRows })
           }
         }, 100)
       }
-      // 'ping' and other types are silently ignored
     } catch { /* ignore malformed messages */ }
   })
 
   ws.once('close', () => {
+    log.event('WS_CLOSE', { stillActive: session.ws === ws })
+    log.close()
     if (resizeTimer) clearTimeout(resizeTimer)
     onData.dispose()
     onExit.dispose()
-    session._disposeProc = undefined
-    session.ws = null
-    session.status = 'detached'
+    if (session.ws === ws) {
+      session._disposeProc = undefined
+      session.ws = null
+      session.status = 'detached'
+    }
   })
 }
 
@@ -163,6 +202,28 @@ export function killLocal(id: string): void {
     session.proc.kill()
   } catch { /* already dead */ }
   session.ws?.close()
+  sessions.delete(id)
+}
+
+// Graceful-shutdown counterpart to killLocal(): give up our side of the
+// connection without touching the pty.
+//
+// killLocal() is a user asking for the session to end, so it kills. Shutdown is
+// not that — the tmux SERVER outlives this process, so tearing down its clients
+// on the way out actively works against the thing that makes sessions durable.
+// The tmux client exits on its own when this process does and the pty master
+// closes; the server, the session and everything running in it survive.
+//
+// Listeners are disposed first so the pty's exit during shutdown does not fire
+// onSessionEnd and count a miss against a session that is perfectly healthy.
+export function detachLocal(id: string): void {
+  const session = sessions.get(id)
+  if (!session) return
+  session._disposeProc?.()
+  session._disposeProc = undefined
+  try { session.ws?.close(1001, 'server shutting down') } catch { /* already gone */ }
+  session.ws = null
+  session.status = 'detached'
   sessions.delete(id)
 }
 
