@@ -85,7 +85,7 @@ On the dev server the checkout is at `/home/dev/projects/infra`.
 
 | Question | Document |
 |---|---|
-| How does deployment work here? | `README.md` — the `deploy.sh` + `infra/` + `dist/` convention |
+| How does deployment work here? | `projects/tty.md` — systemd unit, **no `deploy.sh`** (the `README.md` convention does not apply here) |
 | How do I deploy, debug a 502, or restore? | `runbooks.md` |
 | Which domain does this serve, and from where? | `services.md` |
 | What is this project's state and known traps? | `projects/tty.md` |
@@ -96,9 +96,18 @@ On the dev server the checkout is at `/home/dev/projects/infra`.
 
 ### Rules
 
-- **Deploy only with `./deploy.sh`, from the dev server.** Never edit files
-  directly on prod — the next deploy runs `rsync --delete` and silently
-  overwrites them.
+- **This project has no `deploy.sh`** — the repo-wide `deploy.sh` + `dist/`
+  convention does not apply. tty runs as a bare systemd host process on the dev
+  server (`/etc/systemd/system/tty.service`, port 3789) straight out of this
+  working directory, not as a container and not from a `dist/` on prod. To
+  deploy: `npm run build`, then `sudo systemctl restart tty`.
+- **Restarting tty.service can destroy the user's work.** Everything a terminal
+  pane ever launched — the tmux server, agents running in panes, dev servers
+  started from a pane — lives in the `tty.service` cgroup. `KillMode=process`
+  in the unit is what keeps a restart from SIGTERMing all of it, and it is
+  load-bearing: verify `systemctl show tty -p KillMode` reads `process` before
+  restarting, and never assume a restart here is cheap. See
+  [`projects/tty.md`](https://github.com/docnavy11/infra) for the full traps.
 - **Never commit secrets.** Real `.env` files stay on the server at mode 600;
   commit an `env.example` documenting the required keys instead.
 - **Never pin a Traefik route to a container IP or a full container name.** Both
