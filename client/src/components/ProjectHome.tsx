@@ -1,5 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ServerStats } from './ServerStats'
+
+interface TmuxStats {
+  name: string
+  cpu: number
+  mem: number
+  pid: number
+}
 
 export interface ProjectWithStatus {
   id: string
@@ -56,9 +63,42 @@ const btnGhost: React.CSSProperties = {
 
 const statusDot: Record<string, string> = {
   connected: '#50fa7b', detached: '#888', connecting: '#f1fa8c', pending: '#555',
+  // Record kept, but its tmux session could not be found. Never auto-deleted —
+  // dismiss with the ✕ button once you are sure it is really gone.
+  orphaned: '#ffb86c',
+}
+
+function fmtBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}K`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)}M`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}G`
 }
 
 export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSession, onKillSession, onRefresh, onOpenSettings }: Props) {
+  const [tmuxStats, setTmuxStats] = useState<Map<string, TmuxStats>>(new Map())
+
+  // Fetch stats once on mount + when sessions change (server caches this, so it's cheap)
+  const fetchTmuxStats = useCallback(() => {
+    fetch('/api/stats?tmux=1')
+      .then(r => r.json())
+      .then(data => {
+        const map = new Map<string, TmuxStats>()
+        for (const t of data.tmux ?? []) {
+          map.set(t.name, t)
+        }
+        setTmuxStats(map)
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { fetchTmuxStats() }, [allSessions.length])
+
+  // Match session ID to tmux name: "wt_" + id without dashes
+  const getSessionStats = (sessionId: string): TmuxStats | undefined => {
+    const tmuxName = 'wt_' + sessionId.replace(/-/g, '').slice(0, 16)
+    return tmuxStats.get(tmuxName)
+  }
+
   const [newProjectName, setNewProjectName] = useState('')
   const [showNewProject, setShowNewProject] = useState(false)
   const [quickName, setQuickName] = useState('')
@@ -207,42 +247,64 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
                 {allSessions.filter(s => s.status === 'connected').length} connected
                 {' / '}
                 {allSessions.filter(s => s.status === 'detached').length} detached
+                {allSessions.some(s => s.status === 'orphaned') && (
+                  <span style={{ color: '#ffb86c' }}>
+                    {' / '}
+                    {allSessions.filter(s => s.status === 'orphaned').length} orphaned
+                  </span>
+                )}
               </span>
             </div>
             {allSessions.map(s => {
               const projectName = s.config.projectId
                 ? projects.find(p => p.activeSessionIds.includes(s.id))?.name
                 : undefined
+              const st = getSessionStats(s.id)
               return (
                 <div key={s.id} style={{
                   background: '#111', border: '1px solid #222', borderRadius: 8,
-                  padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, minHeight: 44,
+                  padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
                 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDot[s.status] ?? '#555', flexShrink: 0 }} />
-                  <div
-                    onClick={() => onOpenSession(s.id)}
-                    style={{ flex: 1, cursor: 'pointer', overflow: 'hidden' }}
-                  >
-                    <div style={{ color: '#ccc', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {s.config.displayName ?? s.config.host}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDot[s.status] ?? '#555', flexShrink: 0 }} />
+                    <div
+                      onClick={() => onOpenSession(s.id)}
+                      style={{ flex: 1, cursor: 'pointer', overflow: 'hidden' }}
+                    >
+                      <div style={{ color: '#ccc', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.config.displayName ?? s.config.host}
+                      </div>
+                      {projectName && (
+                        <div style={{ color: '#444', fontSize: 10, marginTop: 1 }}>{projectName}</div>
+                      )}
                     </div>
-                    {projectName && (
-                      <div style={{ color: '#444', fontSize: 10, marginTop: 1 }}>{projectName}</div>
-                    )}
+                    <span style={{
+                      fontSize: 9, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
+                      background: s.status === 'connected' ? '#1a2a1a'
+                        : s.status === 'detached' ? '#2a2a1a'
+                        : s.status === 'orphaned' ? '#2a1f12' : '#1a1a2a',
+                      color: statusDot[s.status] ?? '#555',
+                      border: `1px solid ${s.status === 'connected' ? '#2a4a2a' : s.status === 'orphaned' ? '#5a3a1a' : '#333'}`,
+                    }}
+                    title={s.status === 'orphaned'
+                      ? 'tmux session not found. The record is kept so you do not lose the name — open it to recreate, or ✕ to discard.'
+                      : undefined}>
+                      {s.status}
+                    </span>
+                    <button
+                      onClick={() => onKillSession(s.id)}
+                      title="Kill session"
+                      style={{ ...btnGhost, border: 'none', padding: '6px', minHeight: 0, color: '#555', fontSize: 13 }}
+                    >{'\u2715'}</button>
                   </div>
-                  <span style={{
-                    fontSize: 9, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
-                    background: s.status === 'connected' ? '#1a2a1a' : s.status === 'detached' ? '#2a2a1a' : '#1a1a2a',
-                    color: statusDot[s.status] ?? '#555',
-                    border: `1px solid ${s.status === 'connected' ? '#2a4a2a' : '#333'}`,
-                  }}>
-                    {s.status}
-                  </span>
-                  <button
-                    onClick={() => onKillSession(s.id)}
-                    title="Kill session"
-                    style={{ ...btnGhost, border: 'none', padding: '6px', minHeight: 0, color: '#555', fontSize: 13 }}
-                  >✕</button>
+                  {/* Per-session stats */}
+                  {st && (
+                    <div style={{ display: 'flex', gap: 12, paddingLeft: 18, fontSize: 10 }}>
+                      <span style={{ color: '#50fa7b' }}>CPU {st.cpu}%</span>
+                      <span style={{ color: '#8be9fd' }}>MEM {fmtBytes(st.mem)}</span>
+                      {st.pid > 0 && <span style={{ color: '#333' }}>pid {st.pid}</span>}
+                    </div>
+                  )}
                 </div>
               )
             })}

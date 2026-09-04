@@ -1,12 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-interface TmuxSession {
-  name: string
-  windows: number
-  created: number
-  attached: boolean
-}
-
 interface Stats {
   cpu: number
   mem: number
@@ -14,7 +7,6 @@ interface Stats {
   memTotal: number
   load: number[]
   uptime: number
-  tmux: TmuxSession[]
 }
 
 function Sparkline({ data, color, max = 100, width = 48, height = 18 }: {
@@ -83,16 +75,6 @@ function fmtUptime(seconds: number): string {
   return `${m}m`
 }
 
-function fmtTimestamp(epoch: number): string {
-  const d = new Date(epoch * 1000)
-  const now = Date.now()
-  const diff = Math.floor((now - d.getTime()) / 1000)
-  if (diff < 60) return 'just now'
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-  return `${Math.floor(diff / 86400)}d ago`
-}
-
 const rowStyle: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', gap: 24,
 }
@@ -120,7 +102,7 @@ export function ServerStats() {
 
   useEffect(() => {
     fetchStats()
-    const interval = setInterval(fetchStats, 3000)
+    const interval = setInterval(fetchStats, 5000)
     return () => clearInterval(interval)
   }, [fetchStats])
 
@@ -152,17 +134,7 @@ export function ServerStats() {
     return () => document.removeEventListener('mousedown', handler)
   }, [expanded])
 
-  const killTmuxSession = async (name: string) => {
-    if (!confirm(`Kill tmux session "${name}"?`)) return
-    try {
-      await fetch(`/api/tmux/${encodeURIComponent(name)}`, { method: 'DELETE' })
-      fetchStats()
-    } catch { /* ignore */ }
-  }
-
   if (!stats) return null
-
-  const detachedCount = stats.tmux.filter(s => !s.attached).length
 
   return (
     <>
@@ -182,14 +154,6 @@ export function ServerStats() {
           <Sparkline data={memHistory} color="#8be9fd" />
           <span style={{ color: '#8be9fd', fontSize: 10, minWidth: 28, textAlign: 'right' }}>{stats.mem}%</span>
         </div>
-        {/* Detached sessions badge */}
-        {detachedCount > 0 && (
-          <span style={{
-            background: '#ff5555', color: '#fff', fontSize: 9, fontWeight: 700,
-            borderRadius: 8, padding: '1px 5px', minWidth: 16, textAlign: 'center',
-            lineHeight: '14px',
-          }}>{detachedCount}</span>
-        )}
       </div>
 
       {/* Expanded dropdown */}
@@ -223,61 +187,6 @@ export function ServerStats() {
             </div>
           </div>
 
-          {/* Tmux sessions */}
-          <div style={{ borderTop: '1px solid #2a2a2a', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
-              tmux sessions ({stats.tmux.length})
-            </div>
-            {stats.tmux.length === 0 ? (
-              <div style={{ color: '#444', fontSize: 11 }}>No tmux sessions</div>
-            ) : (
-              stats.tmux.map(s => (
-                <div key={s.name} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '4px 0', borderBottom: '1px solid #222',
-                }}>
-                  {/* Status dot */}
-                  <span style={{
-                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                    background: s.attached ? '#50fa7b' : '#888',
-                  }} />
-                  {/* Name */}
-                  <span style={{
-                    flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    color: s.attached ? '#ccc' : '#888',
-                  }}>{s.name}</span>
-                  {/* Info */}
-                  <span style={{ color: '#444', fontSize: 10, flexShrink: 0 }}>
-                    {s.windows}w
-                  </span>
-                  <span style={{ color: '#444', fontSize: 10, flexShrink: 0 }}>
-                    {fmtTimestamp(s.created)}
-                  </span>
-                  {/* Status label */}
-                  <span style={{
-                    fontSize: 9, padding: '1px 4px', borderRadius: 3, flexShrink: 0,
-                    background: s.attached ? '#1a2a1a' : '#2a1a1a',
-                    color: s.attached ? '#50fa7b' : '#ff5555',
-                    border: `1px solid ${s.attached ? '#2a4a2a' : '#4a2a2a'}`,
-                  }}>
-                    {s.attached ? 'attached' : 'detached'}
-                  </span>
-                  {/* Kill button */}
-                  {!s.attached && (
-                    <button
-                      onClick={() => killTmuxSession(s.name)}
-                      title={`Kill session "${s.name}"`}
-                      style={{
-                        background: 'none', border: '1px solid #4a2a2a', borderRadius: 3,
-                        color: '#ff5555', cursor: 'pointer', fontSize: 10,
-                        padding: '1px 6px', flexShrink: 0,
-                      }}
-                    >kill</button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
         </div>
       )}
     </>

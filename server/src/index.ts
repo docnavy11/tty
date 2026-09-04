@@ -6,7 +6,7 @@ import cookie from '@fastify/cookie'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { mkdirSync } from 'fs'
-import { initDb } from './db/database.js'
+import { initDb, checkpoint } from './db/database.js'
 import { authRoutes } from './routes/auth.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { terminalRoutes } from './routes/terminal.js'
@@ -29,6 +29,14 @@ mkdirSync(DATA_DIR, { recursive: true })
 
 initDb(join(DATA_DIR, 'db.sqlite'))
 sessionManager.recover()
+
+// Fold the WAL back into db.sqlite periodically. It had grown to 4 MB against a
+// 45 KB database because nothing ever checkpointed it.
+const CHECKPOINT_INTERVAL_MS = Math.max(
+  60_000,
+  parseInt(process.env.TTY_CHECKPOINT_INTERVAL_MS ?? '', 10) || 15 * 60_000,
+)
+setInterval(checkpoint, CHECKPOINT_INTERVAL_MS).unref()
 
 // Autostart projects — actually spawn the pty processes, not just DB records
 for (const p of projectManager.listProjects()) {
@@ -108,6 +116,7 @@ const shutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully`)
   sessionManager.shutdownAll()
   await app.close()
+  checkpoint()
   process.exit(0)
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'))

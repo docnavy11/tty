@@ -10,7 +10,7 @@ export interface SessionConfig {
   projectSessionId?: string
 }
 
-export type SessionStatus = 'pending' | 'connecting' | 'connected' | 'detached'
+export type SessionStatus = 'pending' | 'connecting' | 'connected' | 'detached' | 'orphaned'
 
 export interface StoredSession {
   id: string
@@ -19,4 +19,7 @@ export interface StoredSession {
   status: SessionStatus
   createdAt: Date
   lastActivity: Date
+  // Consecutive authoritative probes that failed to find the tmux session.
+  missingProbes?: number
+  orphanedAt?: Date
 }
