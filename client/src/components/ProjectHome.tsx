@@ -23,6 +23,7 @@ interface SessionInfo {
   id: string
   config: { displayName?: string; host: string; authType: string; projectId?: string }
   status: string
+  cwd?: string
 }
 
 interface Props {
@@ -69,6 +70,10 @@ const statusDot: Record<string, string> = {
   orphaned: '#ffb86c',
 }
 
+function shortPath(path: string): string {
+  return path.replace(/^\/(?:home\/[^/]+|root|Users\/[^/]+)(?=\/|$)/, '~')
+}
+
 function fmtBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}K`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)}M`
@@ -100,6 +105,10 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
     return tmuxStats.get(tmuxName)
   }
 
+  // Which session row is in edit mode, and the in-progress name.
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+
   const [newProjectName, setNewProjectName] = useState('')
   const [showNewProject, setShowNewProject] = useState(false)
   const [quickName, setQuickName] = useState('')
@@ -129,6 +138,19 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ autostart: !current }),
+    })
+    onRefresh()
+  }
+
+  const commitRename = async (id: string) => {
+    const name = draftName.trim()
+    setRenamingId(null)
+    const current = allSessions.find(s => s.id === id)
+    if (!current || name === (current.config.displayName ?? '')) return
+    await fetch(`/api/active-sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: name }),
     })
     onRefresh()
   }
@@ -182,6 +204,126 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
               <button type="button" onClick={() => setShowNewProject(false)} style={{ ...btnGhost, flex: 1 }}>Cancel</button>
             </div>
           </form>
+        )}
+
+        {/* Active sessions first: what is already running is what you most
+            often came here to get back to. The project list below is for
+            starting something new. */}
+        {allSessions.length > 0 && (
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                Active Sessions ({allSessions.length})
+              </div>
+              <div style={{ flex: 1 }} />
+              <span style={{ color: '#444', fontSize: 10 }}>
+                {allSessions.filter(s => s.status === 'connected').length} connected
+                {' / '}
+                {allSessions.filter(s => s.status === 'detached').length} detached
+                {allSessions.some(s => s.status === 'orphaned') && (
+                  <span style={{ color: '#ffb86c' }}>
+                    {' / '}
+                    {allSessions.filter(s => s.status === 'orphaned').length} orphaned
+                  </span>
+                )}
+              </span>
+            </div>
+            {allSessions.map(s => {
+              const projectName = s.config.projectId
+                ? projects.find(p => p.activeSessionIds.includes(s.id))?.name
+                : undefined
+              const st = getSessionStats(s.id)
+              return (
+                <div key={s.id} style={{
+                  background: '#111', border: '1px solid #222', borderRadius: 8,
+                  padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDot[s.status] ?? '#555', flexShrink: 0 }} />
+                    <div
+                      onClick={() => { if (renamingId !== s.id) onOpenSession(s.id) }}
+                      style={{ flex: 1, cursor: renamingId === s.id ? 'default' : 'pointer', overflow: 'hidden' }}
+                    >
+                      {renamingId === s.id ? (
+                        <input
+                          autoFocus
+                          value={draftName}
+                          onChange={e => setDraftName(e.target.value)}
+                          onBlur={() => commitRename(s.id)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { e.preventDefault(); commitRename(s.id) }
+                            // Escape must abandon the draft, so clear the row
+                            // first — onBlur fires next and would otherwise
+                            // save what Escape just rejected.
+                            if (e.key === 'Escape') { setRenamingId(null) }
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          maxLength={80}
+                          spellCheck={false}
+                          style={{
+                            width: '100%', background: '#0d0d0d', border: '1px solid #2a4a2a',
+                            borderRadius: 4, color: '#e0e0e0', fontFamily: 'inherit',
+                            fontSize: 13, padding: '2px 6px', outline: 'none',
+                          }}
+                        />
+                      ) : (
+                        <div style={{ color: '#ccc', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.config.displayName ?? s.config.host}
+                        </div>
+                      )}
+                      {(projectName || s.cwd) && (
+                        <div
+                          title={s.cwd}
+                          style={{
+                            color: '#444', fontSize: 10, marginTop: 1,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {projectName}
+                          {projectName && s.cwd && ' · '}
+                          {s.cwd && shortPath(s.cwd)}
+                        </div>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: 9, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
+                      background: s.status === 'connected' ? '#1a2a1a'
+                        : s.status === 'detached' ? '#2a2a1a'
+                        : s.status === 'orphaned' ? '#2a1f12' : '#1a1a2a',
+                      color: statusDot[s.status] ?? '#555',
+                      border: `1px solid ${s.status === 'connected' ? '#2a4a2a' : s.status === 'orphaned' ? '#5a3a1a' : '#333'}`,
+                    }}
+                    title={s.status === 'orphaned'
+                      ? 'tmux session not found. The record is kept so you do not lose the name — open it to recreate, or ✕ to discard.'
+                      : undefined}>
+                      {s.status}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setDraftName(s.config.displayName ?? '')
+                        setRenamingId(s.id)
+                      }}
+                      title="Rename session"
+                      style={{ ...btnGhost, border: 'none', padding: '6px', minHeight: 0, color: '#555', fontSize: 12 }}
+                    >{'\u270e'}</button>
+                    <button
+                      onClick={() => onKillSession(s.id)}
+                      title="Kill session"
+                      style={{ ...btnGhost, border: 'none', padding: '6px', minHeight: 0, color: '#555', fontSize: 13 }}
+                    >{'\u2715'}</button>
+                  </div>
+                  {/* Per-session stats */}
+                  {st && (
+                    <div style={{ display: 'flex', gap: 12, paddingLeft: 18, fontSize: 10 }}>
+                      <span style={{ color: '#50fa7b' }}>CPU {st.cpu}%</span>
+                      <span style={{ color: '#8be9fd' }}>MEM {fmtBytes(st.mem)}</span>
+                      {st.pid > 0 && <span style={{ color: '#333' }}>pid {st.pid}</span>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </section>
         )}
 
         {/* Project directories on disk. Distinct from the session groups below:
@@ -241,82 +383,6 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
                 </div>
               </div>
             ))}
-          </section>
-        )}
-
-        {/* All active sessions */}
-        {allSessions.length > 0 && (
-          <section style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <div style={{ color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                Active Sessions ({allSessions.length})
-              </div>
-              <div style={{ flex: 1 }} />
-              <span style={{ color: '#444', fontSize: 10 }}>
-                {allSessions.filter(s => s.status === 'connected').length} connected
-                {' / '}
-                {allSessions.filter(s => s.status === 'detached').length} detached
-                {allSessions.some(s => s.status === 'orphaned') && (
-                  <span style={{ color: '#ffb86c' }}>
-                    {' / '}
-                    {allSessions.filter(s => s.status === 'orphaned').length} orphaned
-                  </span>
-                )}
-              </span>
-            </div>
-            {allSessions.map(s => {
-              const projectName = s.config.projectId
-                ? projects.find(p => p.activeSessionIds.includes(s.id))?.name
-                : undefined
-              const st = getSessionStats(s.id)
-              return (
-                <div key={s.id} style={{
-                  background: '#111', border: '1px solid #222', borderRadius: 8,
-                  padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDot[s.status] ?? '#555', flexShrink: 0 }} />
-                    <div
-                      onClick={() => onOpenSession(s.id)}
-                      style={{ flex: 1, cursor: 'pointer', overflow: 'hidden' }}
-                    >
-                      <div style={{ color: '#ccc', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {s.config.displayName ?? s.config.host}
-                      </div>
-                      {projectName && (
-                        <div style={{ color: '#444', fontSize: 10, marginTop: 1 }}>{projectName}</div>
-                      )}
-                    </div>
-                    <span style={{
-                      fontSize: 9, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
-                      background: s.status === 'connected' ? '#1a2a1a'
-                        : s.status === 'detached' ? '#2a2a1a'
-                        : s.status === 'orphaned' ? '#2a1f12' : '#1a1a2a',
-                      color: statusDot[s.status] ?? '#555',
-                      border: `1px solid ${s.status === 'connected' ? '#2a4a2a' : s.status === 'orphaned' ? '#5a3a1a' : '#333'}`,
-                    }}
-                    title={s.status === 'orphaned'
-                      ? 'tmux session not found. The record is kept so you do not lose the name — open it to recreate, or ✕ to discard.'
-                      : undefined}>
-                      {s.status}
-                    </span>
-                    <button
-                      onClick={() => onKillSession(s.id)}
-                      title="Kill session"
-                      style={{ ...btnGhost, border: 'none', padding: '6px', minHeight: 0, color: '#555', fontSize: 13 }}
-                    >{'\u2715'}</button>
-                  </div>
-                  {/* Per-session stats */}
-                  {st && (
-                    <div style={{ display: 'flex', gap: 12, paddingLeft: 18, fontSize: 10 }}>
-                      <span style={{ color: '#50fa7b' }}>CPU {st.cpu}%</span>
-                      <span style={{ color: '#8be9fd' }}>MEM {fmtBytes(st.mem)}</span>
-                      {st.pid > 0 && <span style={{ color: '#333' }}>pid {st.pid}</span>}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
           </section>
         )}
 

@@ -10,6 +10,9 @@ interface Session {
   id: string
   config: { displayName?: string; host: string; authType: string; projectId?: string }
   status: string
+  // Live pane path, from the server's tmux probe. Absent for SSH sessions,
+  // whose tmux lives on the remote host and so is not in the local listing.
+  cwd?: string
 }
 
 type View =

@@ -7,7 +7,7 @@ import type { WebSocket } from 'ws'
 import type { SessionConfig, StoredSession } from '../types.js'
 import { createLocal, spawnLocal, killLocal, detachLocal } from './LocalBridge.js'
 import {
-  saveSession, removeSession, loadAllSessions, updateSessionStatus,
+  saveSession, removeSession, loadAllSessions, updateSessionStatus, renameSession,
   markSessionFound, bumpMissingProbes, markSessionOrphaned,
 } from '../db/sessions.js'
 import { projectManager } from './ProjectManager.js'
@@ -402,6 +402,22 @@ class SessionManager {
     removeSession(id)
   }
 
+  // Rename a live session. The tmux name is deliberately untouched: it is the
+  // handle every reattach and probe goes through, and renaming it would strand
+  // the running session. Only the label the UI shows changes.
+  rename(id: string, displayName: string): boolean {
+    const session = this.sessions.get(id)
+    if (!session) return false
+    const name = displayName.trim().slice(0, MAX_DISPLAY_NAME)
+    const next = {
+      ...session,
+      config: { ...session.config, displayName: name || undefined },
+    }
+    this.sessions.set(id, next)
+    renameSession(id, next.config.displayName ?? null)
+    return true
+  }
+
   // Where each session's active pane currently is, keyed by session id.
   //
   // Asked live rather than read from the stored cwd because the stored value is
@@ -451,6 +467,9 @@ class SessionManager {
     }
   }
 }
+
+// Long enough for a descriptive label, short enough that the row still renders.
+const MAX_DISPLAY_NAME = 80
 
 // Number of consecutive authoritative misses before a session is marked
 // orphaned. Override with TTY_MISSING_PROBE_THRESHOLD.

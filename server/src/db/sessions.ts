@@ -49,6 +49,13 @@ export function removeSession(id: string): void {
   getDb().prepare('DELETE FROM active_sessions WHERE id = ?').run(id)
 }
 
+// Rename is stored separately from saveSession() so it cannot disturb the rest
+// of a session row: an INSERT OR REPLACE would rewrite missing_probes and
+// orphaned_at from an in-memory copy that may be older than the database.
+export function renameSession(id: string, displayName: string | null): void {
+  getDb().prepare('UPDATE active_sessions SET display_name = ? WHERE id = ?').run(displayName, id)
+}
+
 export function updateSessionStatus(id: string, status: string): void {
   getDb().prepare('UPDATE active_sessions SET status = ? WHERE id = ?').run(status, id)
 }
