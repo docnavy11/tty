@@ -18,7 +18,24 @@ export async function sessionRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/active-sessions', async () => {
-    return sessionManager.list()
+    // One tmux probe for the whole list. Asking per session would be a
+    // subprocess each, and `display-message -t=NAME` is the call that silently
+    // returns an empty string for a session name rather than failing — see the
+    // note on tmuxProbe().
+    const paths = sessionManager.currentPaths()
+    return sessionManager.list().map(s => ({ ...s, cwd: paths.get(s.id) }))
+  })
+
+  app.patch('/api/active-sessions/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const { displayName } = (req.body ?? {}) as { displayName?: unknown }
+    if (typeof displayName !== 'string') {
+      return reply.code(400).send({ error: 'displayName must be a string' })
+    }
+    if (!sessionManager.rename(id, displayName)) {
+      return reply.code(404).send({ error: 'Session not found' })
+    }
+    return { ok: true }
   })
 
   app.delete('/api/active-sessions/:id', async (req, reply) => {
