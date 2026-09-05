@@ -8,6 +8,10 @@ export interface SessionConfig {
   displayName?: string
   projectId?: string
   projectSessionId?: string
+  // Directory the session was started in. Only meaningful for authType 'local',
+  // and only honoured when the tmux session is created — reattaching to an
+  // existing one keeps whatever directory it is already in.
+  cwd?: string
 }
 
 export type SessionStatus = 'pending' | 'connecting' | 'connected' | 'detached' | 'orphaned'

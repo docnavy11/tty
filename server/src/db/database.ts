@@ -34,6 +34,7 @@ function migrate(database: Database.Database): void {
 
   addColumn('active_sessions', 'missing_probes', 'INTEGER DEFAULT 0')
   addColumn('active_sessions', 'orphaned_at', 'DATETIME')
+  addColumn('active_sessions', 'cwd', 'TEXT')
 }
 
 // Flush the WAL back into the main database file. Without this the WAL grows

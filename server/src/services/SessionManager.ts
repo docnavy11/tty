@@ -145,6 +145,7 @@ class SessionManager {
           username: '',
           authType: 'local',
           displayName: labelFor(name, info),
+          cwd: info.cwd || undefined,
         },
         tmuxName: name,
         status: 'detached',
@@ -205,7 +206,7 @@ class SessionManager {
       updateSessionStatus(id, 'connected')
       await createLocal(id, session.tmuxName, cols, rows, ws, noHistory, () => {
         this.handleSessionEnd(id)
-      })
+      }, session.config.cwd)
       return
     }
 
@@ -369,7 +370,7 @@ class SessionManager {
     if (!session || session.config.authType !== 'local') return
     spawnLocal(id, session.tmuxName, () => {
       this.handleSessionEnd(id)
-    })
+    }, 80, 24, session.config.cwd)
     const updated = { ...session, status: 'detached' as const }
     this.sessions.set(id, updated)
     updateSessionStatus(id, 'detached')
@@ -399,6 +400,25 @@ class SessionManager {
     }
     this.sessions.delete(id)
     removeSession(id)
+  }
+
+  // Where each session's active pane currently is, keyed by session id.
+  //
+  // Asked live rather than read from the stored cwd because the stored value is
+  // only where a session *started*: the two sessions this feature was built
+  // against predate the column entirely, and a shell that has been cd'd
+  // elsewhere should show up under the workspace it is actually in. Falls back
+  // to the stored cwd when tmux cannot be reached, so a failed probe degrades
+  // to stale-but-plausible rather than to nothing.
+  currentPaths(): Map<string, string> {
+    const probe = tmuxProbe()
+    const out = new Map<string, string>()
+    for (const session of this.sessions.values()) {
+      const live = probe.ok ? probe.sessions.get(session.tmuxName)?.cwd : undefined
+      const path = live || session.config.cwd
+      if (path) out.set(session.id, path)
+    }
+    return out
   }
 
   // Called on graceful shutdown. Detaches; it does not kill.
