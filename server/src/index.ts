@@ -14,6 +14,7 @@ import { projectRoutes } from './routes/projects.js'
 import { settingsRoutes } from './routes/settings.js'
 import { fileRoutes } from './routes/files.js'
 import { statsRoutes } from './routes/stats.js'
+import { workspaceRoutes } from './routes/workspaces.js'
 import { sessionManager } from './services/SessionManager.js'
 import { projectManager } from './services/ProjectManager.js'
 
@@ -77,6 +78,7 @@ await app.register(projectRoutes)
 await app.register(settingsRoutes)
 await app.register(fileRoutes)
 await app.register(statsRoutes)
+await app.register(workspaceRoutes)
 
 // SPA fallback
 app.setNotFoundHandler(async (req, reply) => {

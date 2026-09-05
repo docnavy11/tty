@@ -7,3 +7,4 @@ server/dist/
 .env
 init.md
 plan.md
+server/tsconfig.tsbuildinfo

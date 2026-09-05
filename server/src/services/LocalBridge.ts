@@ -2,6 +2,7 @@ import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import type { WebSocket } from 'ws'
 import { execSync } from 'child_process'
+import { existsSync } from 'fs'
 import { createLog } from './wsDebugLog.js'
 import type { WsDebugLog } from './wsDebugLog.js'
 
@@ -47,6 +48,23 @@ function terminalEnv(): Record<string, string> {
 
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
+// Where the tmux CLIENT process runs. Distinct from -c below, which sets the
+// directory of the new session's first pane; both are pointed at the workspace
+// so the shell and anything it inherits agree on where they are.
+function startDir(cwd?: string): string {
+  if (cwd && existsSync(cwd)) return cwd
+  return process.env.HOME ?? '/'
+}
+
+// `new-session -A` attaches to an existing session and IGNORES -c. That is the
+// behaviour we want: a workspace's directory decides where a session starts,
+// never where an already-running one has been cd'd to since.
+function tmuxArgs(tmuxName: string, cols: number, rows: number, cwd?: string): string[] {
+  const args = ['new-session', '-A', '-s', tmuxName, '-x', String(cols), '-y', String(rows)]
+  if (cwd && existsSync(cwd)) args.push('-c', cwd)
+  return args
+}
+
 function sendHistory(tmuxName: string, ws: WebSocket, log: WsDebugLog): void {
   try {
     const history = execSync(
@@ -70,14 +88,14 @@ function sendHistory(tmuxName: string, ws: WebSocket, log: WsDebugLog): void {
 }
 
 // Spawn a local session headlessly (no WS yet). Used by autostart.
-export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => void, cols = 80, rows = 24): void {
+export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => void, cols = 80, rows = 24, cwd?: string): void {
   if (sessions.has(id)) return
 
-  const proc = pty.spawn('tmux', ['new-session', '-A', '-s', tmuxName, '-x', String(cols), '-y', String(rows)], {
+  const proc = pty.spawn('tmux', tmuxArgs(tmuxName, cols, rows, cwd), {
     name: 'xterm-256color',
     cols,
     rows,
-    cwd: process.env.HOME ?? '/',
+    cwd: startDir(cwd),
     env: terminalEnv(),
   })
 
@@ -92,7 +110,7 @@ export function spawnLocal(id: string, tmuxName: string, onSessionEnd?: () => vo
   session._disposeProc = () => onExit.dispose()
 }
 
-export async function createLocal(id: string, tmuxName: string, cols: number, rows: number, ws: WebSocket, noHistory: boolean, onSessionEnd?: () => void): Promise<void> {
+export async function createLocal(id: string, tmuxName: string, cols: number, rows: number, ws: WebSocket, noHistory: boolean, onSessionEnd?: () => void, cwd?: string): Promise<void> {
   const log = createLog(id)
   const existing = sessions.get(id)
   if (existing) {
@@ -121,11 +139,11 @@ export async function createLocal(id: string, tmuxName: string, cols: number, ro
   }
 
   log.event('CONNECT', { branch: 'spawn', cols, rows, noHistory })
-  const proc = pty.spawn('tmux', ['new-session', '-A', '-s', tmuxName, '-x', String(cols), '-y', String(rows)], {
+  const proc = pty.spawn('tmux', tmuxArgs(tmuxName, cols, rows, cwd), {
     name: 'xterm-256color',
     cols,
     rows,
-    cwd: process.env.HOME ?? '/',
+    cwd: startDir(cwd),
     env: terminalEnv(),
   })
 

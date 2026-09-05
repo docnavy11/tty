@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS active_sessions (
     created_at              DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_activity           DATETIME DEFAULT CURRENT_TIMESTAMP,
     missing_probes          INTEGER DEFAULT 0,
-    orphaned_at             DATETIME
+    orphaned_at             DATETIME,
+    cwd                     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS snippets (

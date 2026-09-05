@@ -17,6 +17,7 @@ interface SessionRow {
   last_activity: string
   missing_probes: number | null
   orphaned_at: string | null
+  cwd: string | null
 }
 
 export function saveSession(session: StoredSession): void {
@@ -24,8 +25,8 @@ export function saveSession(session: StoredSession): void {
   db.prepare(`
     INSERT OR REPLACE INTO active_sessions
       (id, project_id, project_session_id, host, port, username, auth_type, key_path,
-       tmux_name, display_name, status, created_at, last_activity)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       tmux_name, display_name, status, created_at, last_activity, cwd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     session.id,
     session.config.projectId ?? null,
@@ -40,6 +41,7 @@ export function saveSession(session: StoredSession): void {
     session.status,
     session.createdAt.toISOString(),
     session.lastActivity.toISOString(),
+    session.config.cwd ?? null,
   )
 }
 
@@ -94,6 +96,7 @@ function rowToSession(row: SessionRow): StoredSession {
     displayName: row.display_name ?? undefined,
     projectId: row.project_id ?? undefined,
     projectSessionId: row.project_session_id ?? undefined,
+    cwd: row.cwd ?? undefined,
   }
   return {
     id: row.id,

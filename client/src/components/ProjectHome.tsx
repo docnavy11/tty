@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ServerStats } from './ServerStats'
+import { WorkspaceList } from './WorkspaceList'
 
 interface TmuxStats {
   name: string
@@ -162,7 +163,7 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
           <h1 style={{ flex: 1, fontSize: 18, fontWeight: 600, color: '#e0e0e0' }}>WebTerminal</h1>
           <ServerStats />
           <button onClick={onOpenSettings} style={{ ...btnGhost, padding: '10px 12px' }} title="Settings">⚙</button>
-          <button onClick={() => setShowNewProject(v => !v)} style={btnPrimary}>+ Project</button>
+          <button onClick={() => setShowNewProject(v => !v)} style={btnPrimary}>+ Group</button>
         </div>
 
         {/* New project form */}
@@ -173,7 +174,7 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
               style={inp}
               value={newProjectName}
               onChange={e => setNewProjectName(e.target.value)}
-              placeholder="Project name"
+              placeholder="Session group name"
               required
             />
             <div style={{ display: 'flex', gap: 8 }}>
@@ -183,10 +184,18 @@ export function ProjectHome({ projects, allSessions, onOpenProject, onOpenSessio
           </form>
         )}
 
-        {/* Projects */}
+        {/* Project directories on disk. Distinct from the session groups below:
+            this is the filesystem, sorted by what was touched most recently. */}
+        <WorkspaceList
+          onOpenSession={onOpenSession}
+          onRefresh={onRefresh}
+          revision={allSessions.map(s => `${s.id}:${s.status}`).join(',')}
+        />
+
+        {/* Session groups */}
         {projects.length > 0 && (
           <section style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Projects</div>
+            <div style={{ color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Session groups</div>
             {projects.map(p => (
               <div key={p.id} style={{
                 background: '#111', border: '1px solid #222', borderRadius: 8,
