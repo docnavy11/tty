@@ -8,7 +8,8 @@
 # and takes only a read lock, so it is safe while the server is running.
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/opt/tty}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${PROJECT_DIR:-$(dirname "$SCRIPT_DIR")}"
 DB_PATH="${DB_PATH:-$PROJECT_DIR/data/db.sqlite}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/backups/tty}"
 RETAIN_DAYS="${RETAIN_DAYS:-30}"
@@ -17,7 +18,7 @@ RETAIN_DAYS="${RETAIN_DAYS:-30}"
 NODE_BIN="${NODE_BIN:-}"
 if [[ -z "$NODE_BIN" ]]; then
   for candidate in \
-    $HOME/.nvm/versions/node/v22.22.1/bin/node \
+    "$(ls -1d "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | sort -V | tail -1)" \
     "$(command -v node 2>/dev/null || true)"; do
     if [[ -n "$candidate" && -x "$candidate" ]]; then NODE_BIN="$candidate"; break; fi
   done

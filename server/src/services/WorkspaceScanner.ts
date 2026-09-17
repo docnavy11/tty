@@ -1,12 +1,13 @@
 import { readdirSync, statSync, existsSync, realpathSync, readFileSync } from 'fs'
 import { join, resolve, sep } from 'path'
+import { homedir } from 'os'
 
 // The directory holding the user's projects, one level of subdirectories deep.
 // This is deliberately NOT tty's `projects` table: that models a *group of
 // session definitions*, which is a different thing that happens to share a
 // name. A workspace is just a folder on disk you might want a shell in.
 export const WORKSPACE_ROOT = resolve(
-  process.env.TTY_PROJECTS_ROOT ?? join(process.env.HOME ?? '$HOME', 'projects')
+  process.env.TTY_PROJECTS_ROOT ?? join(process.env.HOME ?? homedir(), 'projects')
 )
 
 export interface Workspace {
@@ -22,9 +23,8 @@ export interface Workspace {
 }
 
 // Directories that are build output, dependency trees or data — never projects,
-// and expensive to walk. Mirrors the blocklist in infra/collect.sh, which was
-// added after an earlier version happily reported `someproject/__pycache__` as
-// a project of its own.
+// and expensive to walk. Added after an earlier version happily reported
+// `someproject/__pycache__` as a project of its own.
 const JUNK = new Set([
   '__pycache__', 'node_modules', '.venv', 'venv', 'data', 'results',
   'dist', 'build', 'out', 'logs', 'tmp', 'cache', '.git', '.idea', '.vscode',
@@ -33,14 +33,14 @@ const JUNK = new Set([
 
 // Files excluded from the recency signal because they are written in bulk by
 // tooling rather than by the user. Writing CLAUDE.md into 31 repos in one pass
-// made 14 long-dormant projects look freshly active in the infra inventory —
-// the metric was measuring the tool, not the work. Same reasoning for
+// made 14 long-dormant projects look freshly active in the inventory — the
+// metric was measuring the tool, not the work. Same reasoning for
 // .gitignore, which gets templated across repos the same way.
 const NOT_ACTIVITY = new Set(['CLAUDE.md', '.gitignore', '.DS_Store'])
 
 // A directory is a project if it carries any project marker. One that carries
 // none but whose children do is a *container* directory and gets descended into
-// — projects/acme is exactly this, holding five projects. Scanning only one
+// — a folder holding five sibling repos is exactly this. Scanning only one
 // level deep would report it as a single opaque blob.
 const MARKERS = [
   '.git', 'deploy.sh', 'package.json', 'requirements.txt', 'pyproject.toml',
@@ -163,10 +163,10 @@ export function scanWorkspaces(force = false): Workspace[] {
       kids.push(describe(`${name}/${kid}`, kidDir))
       if (isProject(kidDir)) any = true
     }
-    // The container itself stays in the list alongside its children. The infra
-    // inventory drops it — it is not a project — but this list exists to answer
-    // "where do I want a shell", and `projects/acme` is a real answer: a
-    // session was already sitting in it, with nowhere to be shown.
+    // The container itself stays in the list alongside its children. It is not
+    // a project, but this list exists to answer "where do I want a shell", and
+    // a container directory is a real answer: a session may already be sitting
+    // in it, with nowhere to be shown.
     out.push(describe(name, dir))
     if (any) out.push(...kids)
   }

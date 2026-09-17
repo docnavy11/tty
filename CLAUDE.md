@@ -75,18 +75,17 @@ On reconnect: resize pane to client dimensions **first**, then capture tmux scro
 
 
 ## Deployment
-  
-  tty runs as a bare systemd host process straight out of the working directory
-  (see `tty.service`) — not as a container and not from a `dist/` copied to a
-  server. To deploy: `npm run build`, then `sudo systemctl restart tty`.
-  
-  **Restarting tty.service can destroy running work.** Everything a terminal pane
-  ever launched — the tmux server, agents running in panes, dev servers started
-  from a pane — lives in the `tty.service` cgroup. `KillMode=process` in the unit
-  is what keeps a restart from SIGTERMing all of it, and it is load-bearing:
-  verify `systemctl show tty -p KillMode` reads `process` before restarting, and
-  never assume a restart here is cheap.
-  
-  **Never commit secrets.** Real `.env` files stay on the server at mode 600;
-  commit an `env.example` documenting the required keys instead.
-  
+
+tty runs as a bare systemd host process straight out of the working directory
+(see `tty.service`) — not as a container and not from a `dist/` copied to a
+server. To deploy: `npm run build`, then `sudo systemctl restart tty`.
+
+**Restarting tty.service can destroy running work.** Everything a terminal pane
+ever launched — the tmux server, agents running in panes, dev servers started
+from a pane — lives in the `tty.service` cgroup. `KillMode=process` in the unit
+is what keeps a restart from SIGTERMing all of it, and it is load-bearing:
+verify `systemctl show tty -p KillMode` reads `process` before restarting, and
+never assume a restart here is cheap.
+
+**Never commit secrets.** Real `.env` files stay on the server at mode 600;
+commit an `env.example` documenting the required keys instead.
