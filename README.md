@@ -61,20 +61,28 @@ All configuration is via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP port |
-| `HOST` | `0.0.0.0` | Bind address |
+| `HOST` | `127.0.0.1` | Bind address. A non-loopback value needs `AUTH_TOKEN` (see below). |
 | `DATA_DIR` | `./data` | SQLite database and persistent data |
 | `CLIENT_DIST` | `./client/dist` | Built frontend assets |
-| `AUTH_TOKEN` | _(unset)_ | Password to protect the app. If unset, no auth. |
+| `AUTH_TOKEN` | _(unset)_ | Password to protect the app. If unset, no auth — and then only a loopback `HOST` is allowed. |
+| `TTY_ALLOW_PUBLIC_NO_AUTH` | _(unset)_ | Override the refusal to bind a network address with no password. |
 
 ---
 
 ## Authentication
 
-By default the app is open. Set `AUTH_TOKEN` to require a password:
+By default tty listens on `127.0.0.1` only, where the machine itself is the
+boundary and no password is needed. The moment you bind anything else, a password
+is required: with a non-loopback `HOST` and no `AUTH_TOKEN` the server prints what
+to do and **exits** rather than serving an unauthenticated shell.
 
 ```bash
-AUTH_TOKEN=yourpassword node server/dist/index.js
+HOST=0.0.0.0 AUTH_TOKEN=a-long-random-value node server/dist/index.js
 ```
+
+`TTY_ALLOW_PUBLIC_NO_AUTH=1` overrides the refusal. It exists for the case where
+something else is the boundary — a container whose port is mapped to loopback, a
+tailnet-only interface — and for nothing else.
 
 Anyone visiting will be prompted for the password. The session is stored in a signed cookie.
 
@@ -131,14 +139,18 @@ sudo systemctl restart tty@youruser
 docker compose up -d
 ```
 
-To set a password, add `AUTH_TOKEN=yourpassword` to the `environment` section of `docker-compose.yml`.
+The shipped `docker-compose.yml` maps the port to `127.0.0.1` only, so `docker
+compose up -d` reaches no further than the host. To open it up, set `AUTH_TOKEN`
+in the `environment` section **and** change the mapping to `"3000:3000"` — in
+that order.
 
-To give the container access to your SSH keys for connecting to remote servers, mount them into the container's home directory:
+Mounting your SSH keys lets sessions connect on to remote servers. It also hands
+those keys to anyone who reaches the terminal, so the line ships commented out:
 
 ```yaml
 volumes:
   - ./data:/app/data
-  - ~/.ssh:/home/tty/.ssh:ro
+  - ~/.ssh:/home/tty/.ssh:ro   # only with AUTH_TOKEN set
 ```
 
 ---
@@ -229,8 +241,9 @@ that one fact.
    terminated by a reverse proxy, and rate limiting on `/api/auth/login` at the
    proxy. This is the minimum, not a recommendation.
 3. **Never:** reachable from the internet with no `AUTH_TOKEN`. That is an
-   unauthenticated remote shell. The server prints a warning at startup if it
-   detects this combination, but it will still run.
+   unauthenticated remote shell. The server refuses to start in this
+   configuration; `TTY_ALLOW_PUBLIC_NO_AUTH=1` forces it, and then warns on
+   every boot.
 
 ### What the app enforces
 

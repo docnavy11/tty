@@ -1,14 +1,22 @@
 services:
   app:
     build: .
+    # Loopback only. tty hands whoever reaches it a shell, so it is not published
+    # to every interface by default — put a reverse proxy in front for HTTPS, or
+    # change this to "3000:3000" once AUTH_TOKEN below is set.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./data:/app/data
-      - ~/.ssh:/home/tty/.ssh:ro
+      # Mounting your SSH keys lets sessions reach remote hosts — and hands them
+      # to anyone who reaches the terminal. Uncomment only with AUTH_TOKEN set.
+      # - ~/.ssh:/home/tty/.ssh:ro
     environment:
       - PORT=3000
-      - HOST=0.0.0.0
+      - HOST=0.0.0.0        # inside the container; the port mapping above is the real boundary
       - DATA_DIR=/app/data
       - CLIENT_DIST=/app/client/dist
+      # Required before you publish the port to anything but loopback.
+      # - AUTH_TOKEN=change-me-to-something-long-and-random
+      - TTY_ALLOW_PUBLIC_NO_AUTH=1   # the container binds 0.0.0.0 by design; the mapping confines it
     restart: unless-stopped

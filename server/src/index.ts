@@ -21,7 +21,7 @@ import { projectManager } from './services/ProjectManager.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10)
-const HOST = process.env.HOST ?? '0.0.0.0'
+const HOST = process.env.HOST ?? '127.0.0.1'
 const DATA_DIR = process.env.DATA_DIR ?? join(__dirname, '../../data')
 const CLIENT_DIST = process.env.CLIENT_DIST ?? join(__dirname, '../../client/dist')
 const AUTH_TOKEN = process.env.AUTH_TOKEN ?? ''
@@ -89,19 +89,38 @@ app.setNotFoundHandler(async (req, reply) => {
   reply.sendFile('index.html')
 })
 
-await app.listen({ port: PORT, host: HOST })
-console.log(`Server listening on http://${HOST}:${PORT}`)
-
-// Startup safety checks — warn loudly about dangerous configurations
+// Startup safety checks, before anything is served. Binding a non-loopback
+// address with no password is an unauthenticated remote shell, so it is refused
+// rather than warned about: a warning scrolls past, a refusal does not.
 const isPublic = HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1'
 const uid = process.getuid?.()
+
+if (isPublic && !AUTH_TOKEN && !process.env.TTY_ALLOW_PUBLIC_NO_AUTH) {
+  console.error('')
+  console.error('Refusing to start.')
+  console.error('')
+  console.error(`  HOST is ${HOST} (reachable from the network) and AUTH_TOKEN is unset.`)
+  console.error('  That serves a shell on this machine to anyone who can reach the port.')
+  console.error('')
+  console.error('  Pick one:')
+  console.error('    HOST=127.0.0.1                 serve this machine only (the default)')
+  console.error('    AUTH_TOKEN=<long random value> require a password, behind HTTPS')
+  console.error('')
+  console.error('  TTY_ALLOW_PUBLIC_NO_AUTH=1 overrides this if you genuinely mean it —')
+  console.error('  a trusted private network with no other way in. See the README.')
+  console.error('')
+  process.exit(1)
+}
+
+await app.listen({ port: PORT, host: HOST })
+console.log(`Server listening on http://${HOST}:${PORT}`)
 
 if (isPublic && !AUTH_TOKEN) {
   console.warn('')
   console.warn('╔══════════════════════════════════════════════════════════╗')
   console.warn('║  WARNING: NO PASSWORD SET AND SERVER IS PUBLICLY BOUND   ║')
   console.warn('║  Anyone who can reach this address has full terminal      ║')
-  console.warn('║  access. Set AUTH_TOKEN and use HTTPS. See the README.   ║')
+  console.warn('║  access. TTY_ALLOW_PUBLIC_NO_AUTH is set, so this ran.   ║')
   console.warn('╚══════════════════════════════════════════════════════════╝')
   console.warn('')
 }
