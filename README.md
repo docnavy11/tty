@@ -80,6 +80,8 @@ Anyone visiting will be prompted for the password. The session is stored in a si
 
 **Always run behind HTTPS in production.** Without it, the password and all terminal I/O are transmitted in plaintext. See the [Reverse proxy](#reverse-proxy-and-https) section.
 
+A single password is a thin boundary in front of a shell. Read [Security model](#security-model) for what it does and does not protect.
+
 ---
 
 ## Deploy with systemd
@@ -211,12 +213,57 @@ sudo nginx -s reload
 
 ---
 
-## Security
+## Security model
 
-- Set `AUTH_TOKEN` and run behind HTTPS
-- The file browser exposes the home directory of the user running the server — use a dedicated low-privilege user
-- SSH passwords are stored in the local SQLite database; protect `DATA_DIR`
-- The Docker image runs as a non-root user (`uid 1001`)
+tty hands whoever can reach it a shell on the host, running as the user that
+started the server. Treat a tty URL the way you would treat an unlocked SSH
+session: **reaching the app is the credential.** Everything below follows from
+that one fact.
+
+### Recommended deployments, best first
+
+1. **Private network only.** Bind to a VPN/tailnet address, or to `127.0.0.1`
+   behind a reverse proxy that is itself private. The network becomes the auth
+   boundary and the password is a second layer rather than the only one.
+2. **Internet-facing:** `AUTH_TOKEN` set to a long random value, HTTPS
+   terminated by a reverse proxy, and rate limiting on `/api/auth/login` at the
+   proxy. This is the minimum, not a recommendation.
+3. **Never:** reachable from the internet with no `AUTH_TOKEN`. That is an
+   unauthenticated remote shell. The server prints a warning at startup if it
+   detects this combination, but it will still run.
+
+### What the app enforces
+
+- With `AUTH_TOKEN` set, every route requires a valid signed cookie — including
+  the terminal WebSocket. An upgrade request to `/ws/terminal` without the
+  cookie is rejected with 401 before any pty is attached.
+- `/api/health` is behind the same guard, so external uptime checks will get a
+  401 rather than a 200. Probe from behind the proxy, or expect that.
+- The session cookie is `httpOnly`, `sameSite=strict`, signed with `AUTH_TOKEN`,
+  and valid for 30 days.
+- Failed logins are logged with the client IP.
+- Startup warns when bound to a public address with no `AUTH_TOKEN`, when
+  `AUTH_TOKEN` is under 12 characters, and when the server is running as root.
+
+### What the app does not do
+
+- **One shared password.** No user accounts, no MFA, no way to list or revoke
+  issued cookies short of changing `AUTH_TOKEN`.
+- **No login rate limiting or lockout.** Twenty wrong passwords in a row are
+  answered with twenty 401s. If tty is exposed, rate limiting is your reverse
+  proxy's job.
+- **No audit log** of commands run inside sessions.
+
+### Filesystem and credential exposure
+
+- The file browser and editor reach everything the server's user can read and
+  write — not just the project directories. Run tty as a dedicated
+  low-privilege user, not as your main account and not as root.
+- SSH passwords for remote sessions are held in memory for the life of the
+  session and are never written to the database; the schema has no column for
+  them. SSH **key paths** are stored, so protect `DATA_DIR` and the keys it
+  points at.
+- The Docker image runs as a non-root user (uid 1001).
 
 ---
 
