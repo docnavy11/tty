@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # node-pty and better-sqlite3 are native; the runner has the toolchain
+      # they fall back to when no prebuild matches.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # The security property this project lives or dies by: a network bind
+      # with no password must not serve. Asserted against the real built
+      # server, not only the unit test of the predicate.
+      - name: Refuse to serve a shell without a password
+        run: |
+          set +e
+          HOST=0.0.0.0 PORT=3999 DATA_DIR="$RUNNER_TEMP/tty" \
+            node server/dist/index.js > refuse.log 2>&1
+          code=$?
+          set -e
+          cat refuse.log
+          if [ "$code" -eq 0 ]; then
+            echo "::error::server started with a public bind and no AUTH_TOKEN"
+            exit 1
+          fi
+          grep -q "Refusing to start" refuse.log

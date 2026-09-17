@@ -280,6 +280,30 @@ that one fact.
 
 ---
 
+## Development
+
+```bash
+npm install
+npm run check      # typecheck + tests
+npm test           # tests alone
+npm run build      # client and server
+```
+
+The suite covers the part that has to be right: the auth guard. Every route is
+refused without a valid signed cookie, the auth endpoints stay reachable so you
+can log in, a forged or empty cookie does not pass, an empty password is not
+mistaken for "no password configured", and the startup refusal is asserted for
+each combination of bind address, token and override. CI runs all of it on
+Node 22, then starts the built server with a public bind and no token to prove
+it exits rather than serving.
+
+`server/src/app.ts` builds the app without opening a database, starting a pty or
+listening, so tests drive it through `app.inject()` with no ports and no tmux.
+`server/src/index.ts` owns the process: database, session recovery, autostart,
+the safety check and `listen`.
+
+---
+
 ## Tech stack
 
 - **Server**: Node.js, Fastify, node-pty, ssh2, better-sqlite3

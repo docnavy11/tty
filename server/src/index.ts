@@ -1,20 +1,8 @@
-import Fastify from 'fastify'
-import staticPlugin from '@fastify/static'
-import websocketPlugin from '@fastify/websocket'
-import multipart from '@fastify/multipart'
-import cookie from '@fastify/cookie'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { mkdirSync } from 'fs'
 import { initDb, checkpoint } from './db/database.js'
-import { authRoutes } from './routes/auth.js'
-import { sessionRoutes } from './routes/sessions.js'
-import { terminalRoutes } from './routes/terminal.js'
-import { projectRoutes } from './routes/projects.js'
-import { settingsRoutes } from './routes/settings.js'
-import { fileRoutes } from './routes/files.js'
-import { statsRoutes } from './routes/stats.js'
-import { workspaceRoutes } from './routes/workspaces.js'
+import { buildApp, mustRefuseToServe } from './app.js'
 import { sessionManager } from './services/SessionManager.js'
 import { projectManager } from './services/ProjectManager.js'
 
@@ -47,55 +35,19 @@ for (const p of projectManager.listProjects()) {
   }
 }
 
-const app = Fastify({ logger: { redact: ['req.body.password'] } })
-
-await app.register(cookie, { secret: AUTH_TOKEN || 'dev-secret-change-me' })
-await app.register(websocketPlugin, { options: { maxPayload: 64 * 1024 } })
-await app.register(multipart)
-
-await app.register(staticPlugin, {
-  root: CLIENT_DIST,
-  prefix: '/',
-})
-
-// Auth guard — runs before every route except the auth endpoints themselves
-if (AUTH_TOKEN) {
-  app.addHook('preHandler', async (req, reply) => {
-    if (req.url.startsWith('/api/auth/')) return
-    const r = req as any
-    const raw = r.cookies?.['tty_auth']
-    const valid = raw ? r.unsignCookie(raw).valid : false
-    if (!valid) reply.code(401).send({ error: 'Unauthorized' })
-  })
-}
-
-app.get('/api/health', async () => ({ ok: true }))
-
-await app.register(authRoutes, { token: AUTH_TOKEN })
-await app.register(sessionRoutes)
-await app.register(terminalRoutes)
-await app.register(projectRoutes)
-await app.register(settingsRoutes)
-await app.register(fileRoutes)
-await app.register(statsRoutes)
-await app.register(workspaceRoutes)
-
-// SPA fallback
-app.setNotFoundHandler(async (req, reply) => {
-  if (req.url.startsWith('/api') || req.url.startsWith('/ws')) {
-    reply.code(404).send({ error: 'Not found' })
-    return
-  }
-  reply.sendFile('index.html')
-})
+const app = await buildApp({ authToken: AUTH_TOKEN, clientDist: CLIENT_DIST })
 
 // Startup safety checks, before anything is served. Binding a non-loopback
 // address with no password is an unauthenticated remote shell, so it is refused
 // rather than warned about: a warning scrolls past, a refusal does not.
-const isPublic = HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1'
+const isPublic = !['127.0.0.1', 'localhost', '::1'].includes(HOST)
 const uid = process.getuid?.()
 
-if (isPublic && !AUTH_TOKEN && !process.env.TTY_ALLOW_PUBLIC_NO_AUTH) {
+if (mustRefuseToServe({
+  host: HOST,
+  authToken: AUTH_TOKEN,
+  allowPublicNoAuth: Boolean(process.env.TTY_ALLOW_PUBLIC_NO_AUTH),
+})) {
   console.error('')
   console.error('Refusing to start.')
   console.error('')
